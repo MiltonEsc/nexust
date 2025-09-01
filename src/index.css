@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Tus estilos personalizados van aquí abajo */
+body { font-family: 'Inter', sans-serif; }
+select[multiple] { background-image: none; }
+dialog::backdrop { background-color: rgba(0, 0, 0, 0.5); }
+.nav-link { cursor: pointer; padding: 0.5rem 1rem; border-radius: 0.375rem; transition: all 0.2s ease-in-out; }
+.nav-link.active, .dropdown-toggle.active { color: #4338ca; font-weight: 600; }
+.page { display: none; }
+.page.active { display: block; }
+.tab-link { cursor: pointer; padding: 0.5rem 1rem; border-radius: 0.375rem; transition: background-color 0.2s ease-in-out; }
+.tab-link.active { background-color: #eef2ff; color: #4338ca; font-weight: 500; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Estilos para la animación de la notificación (toast) */
+@keyframes fade-in-out {
+  0% { opacity: 0; transform: translateY(-20px); }
+  10% { opacity: 1; transform: translateY(0); }
+  90% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-20px); }
+}
+.animate-fade-in-out {
+  animation: fade-in-out 4s ease-in-out forwards;
+}
+
+/* En index.css */
+.btn-primary { @apply py-2 px-4 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700; }
+.th-cell { @apply px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase; }
+.td-cell { @apply px-6 py-4 whitespace-nowrap text-sm text-gray-700; }
+.btn-success { @apply py-1 px-3 rounded-md text-white bg-green-600 hover:bg-green-700; }
+.btn-danger { @apply py-1 px-3 rounded-md text-white bg-red-600 hover:bg-red-700; }
+
+.btn-primary {
+  @apply py-2 px-4 text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-400;
+}
+
+.btn-secondary {
+  @apply py-2 px-4 text-sm font-medium rounded-md text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500;
+}
+
+.btn-danger {
+  @apply py-1 px-3 rounded-md text-white bg-red-600 hover:bg-red-700;
+}
+
+.btn-success {
+  @apply py-1 px-3 rounded-md text-white bg-green-600 hover:bg-green-700;
+}
+
+.input-style {
+  @apply mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500;
+}
+
+.th-cell {
+  @apply px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider;
+}
+
+.td-cell {
+  @apply px-6 py-4 whitespace-nowrap text-sm text-gray-700;
+}

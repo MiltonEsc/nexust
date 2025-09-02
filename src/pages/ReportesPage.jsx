@@ -1,66 +1,78 @@
 // src/pages/ReportesPage.jsx
 
-import React, { useState, useEffect } from "react";
-import { supabase } from "../supabaseClient";
-import BarChart from "../components/charts/BarChart";
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
+import { useAppContext } from '../context/AppContext';
+import BarChart from '../components/charts/BarChart';
+import DoughnutChart from '../components/charts/DoughnutChart';
 
 function ReportesPage() {
-  const [chartData, setChartData] = useState(null);
+  const { activeCompany } = useAppContext();
+  const [reportData, setReportData] = useState({
+    costoTotal: 0,
+    costoPromedioUsuario: 0,
+    costoPorTipo: null,
+    costoPorProveedor: null,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Formateador para moneda
+  const formatCurrency = (value) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(value);
+
   useEffect(() => {
+    if (!activeCompany) return;
+
     const fetchAndProcessData = async () => {
       try {
         setLoading(true);
+        const { id: companyId } = activeCompany;
+        
         // 1. Obtenemos todos los datos necesarios en paralelo
-        const [proveedoresRes, equiposRes, softwareRes, perifericosRes] =
-          await Promise.all([
-            supabase.from("proveedores").select("id, nombre"),
-            supabase.from("equipos").select("proveedor_id, costo"),
-            supabase.from("software").select("proveedor_id, costo"),
-            supabase.from("perifericos").select("proveedor_id, costo"),
-          ]);
+        const [proveedoresRes, equiposRes, softwareRes, perifericosRes, registrosRes] = await Promise.all([
+          supabase.from('proveedores').select('id, nombre').eq('company_id', companyId),
+          supabase.from('equipos').select('proveedor_id, costo').eq('company_id', companyId),
+          supabase.from('software').select('proveedor_id, costo').eq('company_id', companyId),
+          supabase.from('perifericos').select('proveedor_id, costo').eq('company_id', companyId),
+          supabase.from('registros').select('*', { count: 'exact', head: true }).eq('company_id', companyId),
+        ]);
 
-        if (
-          proveedoresRes.error ||
-          equiposRes.error ||
-          softwareRes.error ||
-          perifericosRes.error
-        ) {
-          throw new Error("Error al obtener los datos para el reporte.");
-        }
+        const proveedores = proveedoresRes.data || [];
+        const equipos = equiposRes.data || [];
+        const software = softwareRes.data || [];
+        const perifericos = perifericosRes.data || [];
+        const totalUsuarios = registrosRes.count || 0;
 
-        const proveedores = proveedoresRes.data;
-        // Unimos todos los activos en un solo array
-        const todosLosActivos = [
-          ...(equiposRes.data || []),
-          ...(softwareRes.data || []),
-          ...(perifericosRes.data || []),
-        ];
+        // 2. Realizamos los cálculos
+        const costoEquipos = equipos.reduce((sum, item) => sum + (Number(item.costo) || 0), 0);
+        const costoSoftware = software.reduce((sum, item) => sum + (Number(item.costo) || 0), 0);
+        const costoPerifericos = perifericos.reduce((sum, item) => sum + (Number(item.costo) || 0), 0);
 
-        // 2. Procesamos los datos para calcular el costo por proveedor
-        const costoPorProveedor = proveedores
-          .map((proveedor) => {
+        const costoTotal = costoEquipos + costoSoftware + costoPerifericos;
+        const costoPromedioUsuario = totalUsuarios > 0 ? costoTotal / totalUsuarios : 0;
+
+        const todosLosActivos = [...equipos, ...software, ...perifericos];
+        const costoPorProveedor = proveedores.map(proveedor => {
             const costoTotal = todosLosActivos
-              .filter((activo) => activo.proveedor_id === proveedor.id)
-              .reduce(
-                (sum, activo) => sum + (parseFloat(activo.costo) || 0),
-                0
-              );
+                .filter(activo => activo.proveedor_id === proveedor.id)
+                .reduce((sum, activo) => sum + (Number(activo.costo) || 0), 0);
+            return { nombre: proveedor.nombre, costo: costoTotal };
+        }).filter(p => p.costo > 0);
 
-            return {
-              nombre: proveedor.nombre,
-              costo: costoTotal,
-            };
-          })
-          .filter((p) => p.costo > 0); // Solo mostramos proveedores con costos asociados
-
-        // 3. Formateamos los datos para Chart.js
-        setChartData({
-          labels: costoPorProveedor.map((p) => p.nombre),
-          data: costoPorProveedor.map((p) => p.costo),
+        // 3. Formateamos y guardamos los datos en el estado
+        setReportData({
+            costoTotal,
+            costoPromedioUsuario,
+            costoPorTipo: {
+                labels: ['Equipos', 'Software', 'Periféricos'],
+                data: [costoEquipos, costoSoftware, costoPerifericos],
+            },
+            costoPorProveedor: {
+                labels: costoPorProveedor.map(p => p.nombre),
+                data: costoPorProveedor.map(p => p.costo),
+            }
         });
+
       } catch (err) {
         setError(err.message);
       } finally {
@@ -68,22 +80,42 @@ function ReportesPage() {
       }
     };
     fetchAndProcessData();
-  }, []);
+  }, [activeCompany]);
+  
+  if (loading) return <div className="text-center p-8">Cargando reportes...</div>;
+  if (error) return <div className="text-center p-8 text-red-600">Error: {error}</div>;
 
   return (
     <div className="p-6 sm:p-8 space-y-8">
       <h1 className="text-3xl font-bold">Reportes y Análisis</h1>
-
-      <div className="bg-white p-6 rounded-xl shadow-lg">
-        <h3 className="font-semibold text-lg mb-4">Costo por Proveedor</h3>
-        <div className="h-96 w-full">
-          {loading && <p>Cargando datos del gráfico...</p>}
-          {error && <p className="text-red-600">{error}</p>}
-          {chartData && <BarChart chartData={chartData} />}
+      
+      {/* Tarjetas de Estadísticas */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+          <p className="text-sm font-medium text-gray-500">Costo Total del Inventario</p>
+          <p className="text-3xl font-bold text-gray-900">{formatCurrency(reportData.costoTotal)}</p>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+          <p className="text-sm font-medium text-gray-500">Costo Promedio por Usuario</p>
+          <p className="text-3xl font-bold text-gray-900">{formatCurrency(reportData.costoPromedioUsuario)}</p>
         </div>
       </div>
 
-      {/* Aquí podrías añadir más gráficos en el futuro */}
+      {/* Gráficos */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+          <h3 className="font-semibold text-lg mb-4">Costo por Tipo de Activo</h3>
+          <div className="h-80 w-full">
+            {reportData.costoPorTipo && <DoughnutChart chartData={reportData.costoPorTipo} />}
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-lg">
+          <h3 className="font-semibold text-lg mb-4">Costo por Proveedor</h3>
+          <div className="h-80 w-full">
+            {reportData.costoPorProveedor && <BarChart chartData={reportData.costoPorProveedor} />}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -7,7 +7,7 @@ import React, { useEffect } from "react";
 // onClose: una función para llamar cuando se quiera cerrar.
 // title: un título opcional para el modal.
 // children: el contenido que irá dentro del modal (nuestro formulario).
-function Modal({ isOpen, onClose, title, children }) {
+function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl' }) {
   // useEffect para manejar el cierre con la tecla 'Escape'
   useEffect(() => {
     const handleEsc = (event) => {
@@ -36,7 +36,7 @@ function Modal({ isOpen, onClose, title, children }) {
 
       {/* 2. El Contenedor Principal del Modal */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="bg-white p-6 rounded-lg shadow-xl relative w-full max-w-3xl">
+        <div className={`bg-white p-6 rounded-lg shadow-xl relative w-full ${maxWidth}`}>
           {/* Encabezado del Modal con Título y Botón de Cierre */}
           <div className="flex justify-between items-center border-b pb-3 mb-4">
             <h3 className="text-xl font-semibold">{title}</h3>

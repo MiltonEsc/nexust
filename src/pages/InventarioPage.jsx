@@ -37,7 +37,6 @@ function InventarioPage() {
 
     setLoading(true);
     setError(null);
-    setItems([]);
 
     const from = (page - 1) * ITEMS_PER_PAGE;
     const to = from + ITEMS_PER_PAGE - 1;
@@ -123,10 +122,8 @@ function InventarioPage() {
       alert("No hay datos para exportar.");
       return;
     }
-
     let headers = [];
     let rows = [];
-
     if (activeTab === "equipos") {
       headers = [
         "ID",
@@ -199,7 +196,6 @@ function InventarioPage() {
           : "N/A",
       ]);
     }
-
     const escapeCSV = (str) => {
       if (str === null || str === undefined) return "";
       const string = String(str);
@@ -212,12 +208,10 @@ function InventarioPage() {
       }
       return string;
     };
-
     const csvContent = [
       headers.join(","),
       ...rows.map((row) => row.map(escapeCSV).join(",")),
     ].join("\n");
-
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     if (link.download !== undefined) {
@@ -435,27 +429,16 @@ function InventarioPage() {
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         title={getModalTitle()}
+        maxWidth="max-w-4xl"
       >
         {activeTab === "equipos" && (
-          <EquipoForm
-            itemToEdit={editingItem}
-            onSuccess={handleSuccess}
-            activeCompanyId={activeCompany?.id}
-          />
+          <EquipoForm itemToEdit={editingItem} onSuccess={handleSuccess} />
         )}
         {activeTab === "software" && (
-          <SoftwareForm
-            itemToEdit={editingItem}
-            onSuccess={handleSuccess}
-            activeCompanyId={activeCompany?.id}
-          />
+          <SoftwareForm itemToEdit={editingItem} onSuccess={handleSuccess} />
         )}
         {activeTab === "perifericos" && (
-          <PerifericoForm
-            itemToEdit={editingItem}
-            onSuccess={handleSuccess}
-            activeCompanyId={activeCompany?.id}
-          />
+          <PerifericoForm itemToEdit={editingItem} onSuccess={handleSuccess} />
         )}
       </Modal>
 

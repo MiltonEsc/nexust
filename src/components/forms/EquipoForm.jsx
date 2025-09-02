@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../supabaseClient";
+import { useAppContext } from "../../context/AppContext";
 
-function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
-  // --- STATE MANAGEMENT ---
+function EquipoForm({ itemToEdit, onSuccess }) {
+  const { activeCompany } = useAppContext();
   const [formData, setFormData] = useState({
     marca: "",
     modelo: "",
@@ -16,38 +17,35 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
     fecha_compra: "",
     fecha_vencimiento_garantia: "",
     costo: 0,
+    vida_util: 5, // Un valor por defecto común
+    valor_residual: 0,
     imagen: "",
     factura_pdf_url: "",
   });
 
-  // Estados separados para manejar los archivos seleccionados
   const [imagenFile, setImagenFile] = useState(null);
   const [facturaFile, setFacturaFile] = useState(null);
-
-  // Estado para la lista de proveedores
   const [proveedores, setProveedores] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // --- DATA FETCHING ---
-  // Este useEffect se ejecuta una vez para cargar los proveedores
   useEffect(() => {
     const fetchProveedores = async () => {
+      if (!activeCompany) return;
       const { data, error } = await supabase
         .from("proveedores")
-        .select("id, nombre");
+        .select("id, nombre")
+        .eq("company_id", activeCompany.id);
       if (error) {
         console.error("Error fetching proveedores:", error);
       } else {
-        setProveedores(data);
+        setProveedores(data || []);
       }
     };
     fetchProveedores();
-  }, []); // El array vacío asegura que solo se ejecute al montar el componente
+  }, [activeCompany]);
 
-  // Este useEffect llena el formulario cuando estamos en modo edición
   useEffect(() => {
     if (itemToEdit) {
-      // Formateamos las fechas para que los inputs de tipo 'date' las acepten
       const formattedItem = {
         ...itemToEdit,
         fecha_compra: itemToEdit.fecha_compra
@@ -56,10 +54,12 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
         fecha_vencimiento_garantia: itemToEdit.fecha_vencimiento_garantia
           ? itemToEdit.fecha_vencimiento_garantia.split("T")[0]
           : "",
+        proveedor_id:
+          itemToEdit.proveedor_id ||
+          (itemToEdit.proveedores ? itemToEdit.proveedores.id : ""),
       };
       setFormData(formattedItem);
     } else {
-      // Resetea el formulario para un nuevo ítem
       setFormData({
         marca: "",
         modelo: "",
@@ -71,13 +71,14 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
         fecha_compra: "",
         fecha_vencimiento_garantia: "",
         costo: 0,
+        vida_util: 5,
+        valor_residual: 0,
         imagen: "",
         factura_pdf_url: "",
       });
     }
   }, [itemToEdit]);
 
-  // --- HANDLER FUNCTIONS ---
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -92,15 +93,16 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
     }
   };
 
-  // Función reutilizable para subir archivos a Supabase Storage
-  const uploadFile = async (file, bucket) => {
-    if (!file) return null;
-    const fileName = `${activeCompanyId}/${Date.now()}-${file.name}`;
+  const uploadFile = async (file, bucketFolder) => {
+    if (!file || !activeCompany) return null;
+    const fileName = `${activeCompany.id}/${bucketFolder}/${Date.now()}-${
+      file.name
+    }`;
     const { error: uploadError } = await supabase.storage
-      .from(bucket)
+      .from("activos")
       .upload(fileName, file);
     if (uploadError) throw uploadError;
-    const { data } = supabase.storage.from(bucket).getPublicUrl(fileName);
+    const { data } = supabase.storage.from("activos").getPublicUrl(fileName);
     return data.publicUrl;
   };
 
@@ -108,19 +110,19 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
     e.preventDefault();
     setLoading(true);
     try {
-      // 1. Subir archivos si existen
-      const imageUrl = await uploadFile(imagenFile, "activos");
-      const facturaUrl = await uploadFile(facturaFile, "facturas");
+      const imageUrl = await uploadFile(imagenFile, "imagenes_equipos");
+      const facturaUrl = await uploadFile(facturaFile, "facturas_equipos");
 
-      // 2. Preparar el objeto de datos para la base de datos
       const dataToSubmit = {
         ...formData,
-        // Si se subió un nuevo archivo, usamos su URL. Si no, mantenemos la existente.
         imagen: imageUrl ?? formData.imagen,
         factura_pdf_url: facturaUrl ?? formData.factura_pdf_url,
-        // Convertir campos vacíos a null para la base de datos
         proveedor_id: formData.proveedor_id || null,
       };
+
+      // Limpiamos los datos anidados que no son columnas reales antes de enviar.
+      delete dataToSubmit.proveedores;
+      delete dataToSubmit.registros;
 
       let error;
       if (itemToEdit) {
@@ -130,7 +132,7 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
           .update(dataToUpdate)
           .eq("id", itemToEdit.id));
       } else {
-        const newRecord = { ...dataToSubmit, company_id: activeCompanyId };
+        const newRecord = { ...dataToSubmit, company_id: activeCompany.id };
         ({ error } = await supabase.from("equipos").insert([newRecord]));
       }
 
@@ -143,18 +145,16 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
     }
   };
 
-  // --- UI RENDERING ---
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <h3 className="text-xl font-semibold mb-4">
-        {itemToEdit ? "Editar Equipo" : ""}
+        {itemToEdit ? "Editar Equipo" : "Añadir Equipo"}
       </h3>
 
-      {/* --- Detalles del Equipo --- */}
       <h4 className="text-lg font-medium text-gray-800 border-b pb-2">
         Detalles del Equipo
       </h4>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
           <label>Marca</label>
           <input
@@ -163,7 +163,7 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
             value={formData.marca}
             onChange={handleChange}
             required
-            className="mt-1 w-full border-gray-300 rounded-md shadow-sm"
+            className="input-style"
           />
         </div>
         <div>
@@ -174,7 +174,7 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
             value={formData.modelo}
             onChange={handleChange}
             required
-            className="mt-1 w-full border-gray-300 rounded-md shadow-sm"
+            className="input-style"
           />
         </div>
         <div>
@@ -185,22 +185,8 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
             value={formData.numero_serie}
             onChange={handleChange}
             required
-            className="mt-1 w-full border-gray-300 rounded-md shadow-sm"
+            className="input-style"
           />
-        </div>
-        <div>
-          <label>Estado</label>
-          <select
-            name="estado"
-            value={formData.estado}
-            onChange={handleChange}
-            className="mt-1 w-full border-gray-300 rounded-md shadow-sm"
-          >
-            <option>Bueno</option>
-            <option>Regular</option>
-            <option>Malo</option>
-            <option>En reparación</option>
-          </select>
         </div>
         <div className="md:col-span-2">
           <label>Ubicación</label>
@@ -209,23 +195,35 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
             name="ubicacion"
             value={formData.ubicacion}
             onChange={handleChange}
-            className="mt-1 w-full border-gray-300 rounded-md shadow-sm"
+            className="input-style"
           />
+        </div>
+        <div>
+          <label>Estado Físico</label>
+          <select
+            name="estado"
+            value={formData.estado}
+            onChange={handleChange}
+            className="input-style"
+          >
+            <option>Bueno</option>
+            <option>Regular</option>
+            <option>Malo</option>
+          </select>
         </div>
       </div>
 
-      {/* --- Información de Compra --- */}
       <h4 className="text-lg font-medium text-gray-800 border-b pb-2 mt-4">
-        Información de Compra
+        Información de Compra y Financiera
       </h4>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
           <label>Proveedor</label>
           <select
             name="proveedor_id"
             value={formData.proveedor_id}
             onChange={handleChange}
-            className="mt-1 w-full border-gray-300 rounded-md shadow-sm"
+            className="input-style"
           >
             <option value="">-- Sin Proveedor --</option>
             {proveedores.map((p) => (
@@ -242,7 +240,7 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
             name="numero_factura"
             value={formData.numero_factura}
             onChange={handleChange}
-            className="mt-1 w-full border-gray-300 rounded-md shadow-sm"
+            className="input-style"
           />
         </div>
         <div>
@@ -252,7 +250,7 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
             name="fecha_compra"
             value={formData.fecha_compra}
             onChange={handleChange}
-            className="mt-1 w-full border-gray-300 rounded-md shadow-sm"
+            className="input-style"
           />
         </div>
         <div>
@@ -262,7 +260,7 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
             name="fecha_vencimiento_garantia"
             value={formData.fecha_vencimiento_garantia}
             onChange={handleChange}
-            className="mt-1 w-full border-gray-300 rounded-md shadow-sm"
+            className="input-style"
           />
         </div>
         <div>
@@ -274,38 +272,59 @@ function EquipoForm({ itemToEdit, onSuccess, activeCompanyId }) {
             placeholder="0.00"
             value={formData.costo}
             onChange={handleChange}
-            className="mt-1 w-full border-gray-300 rounded-md shadow-sm"
-          />
-        </div>
-        <div></div> {/* Espacio en blanco para alinear */}
-        <div>
-          <label>Imagen del Activo</label>
-          <input
-            type="file"
-            name="imagen"
-            onChange={handleFileChange}
-            accept="image/*"
-            className="mt-1 w-full text-sm"
+            className="input-style"
           />
         </div>
         <div>
-          <label>Factura (PDF)</label>
+          <label>Vida Útil (Años)</label>
           <input
-            type="file"
-            name="factura_pdf"
-            onChange={handleFileChange}
-            accept="application/pdf"
-            className="mt-1 w-full text-sm"
+            type="number"
+            name="vida_util"
+            placeholder="Ej: 5"
+            value={formData.vida_util}
+            onChange={handleChange}
+            className="input-style"
           />
+        </div>
+        <div className="md:col-span-3">
+          <label>Valor Residual</label>
+          <input
+            type="number"
+            name="valor_residual"
+            step="0.01"
+            placeholder="0.00"
+            value={formData.valor_residual}
+            onChange={handleChange}
+            className="input-style"
+          />
+        </div>
+
+        <div className="md:col-span-3 grid grid-cols-2 gap-4 pt-2">
+          <div>
+            <label>Imagen del Activo</label>
+            <input
+              type="file"
+              name="imagen"
+              onChange={handleFileChange}
+              accept="image/*"
+              className="input-style-file"
+            />
+          </div>
+          <div>
+            <label>Factura (PDF)</label>
+            <input
+              type="file"
+              name="factura_pdf"
+              onChange={handleFileChange}
+              accept="application/pdf"
+              className="input-style-file"
+            />
+          </div>
         </div>
       </div>
 
       <div className="pt-4 text-right">
-        <button
-          type="submit"
-          disabled={loading}
-          className="py-2 px-6 font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md shadow-sm disabled:bg-indigo-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-        >
+        <button type="submit" disabled={loading} className="btn-primary">
           {loading ? "Guardando..." : "Guardar"}
         </button>
       </div>

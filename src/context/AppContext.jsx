@@ -21,9 +21,13 @@ export function AppProvider({ children }) {
   const fetchUserCompanies = useCallback(async () => {
     if (!session) return;
 
+    // ▼▼▼ CONSULTA CORREGIDA ▼▼▼
+    // Ahora filtramos explícitamente por el user_id del usuario actual.
+    // Esto asegura que solo veamos las invitaciones dirigidas a nosotros.
     const { data, error } = await supabase
       .from("company_users")
-      .select("status, role, companies(*)");
+      .select("status, role, companies(*)")
+      .eq("user_id", session.user.id); // <-- LA LÍNEA CLAVE
 
     if (data) {
       const allCompanies = data.map((item) => ({
@@ -38,13 +42,18 @@ export function AppProvider({ children }) {
       setInvitations(pending);
 
       const lastCompanyId = localStorage.getItem("activeCompanyId");
-      const lastCompany = accepted.find((c) => c.id === lastCompanyId);
+      // Buscamos la compañía activa solo entre las aceptadas
+      const lastCompany = accepted.find((c) => String(c.id) === lastCompanyId);
 
       if (lastCompany) {
         setActiveCompany(lastCompany);
       } else if (accepted.length > 0) {
         setActiveCompany(accepted[0]);
         localStorage.setItem("activeCompanyId", accepted[0].id);
+      } else {
+        // Si no hay compañías aceptadas, nos aseguramos de que no haya una activa.
+        setActiveCompany(null);
+        localStorage.removeItem("activeCompanyId");
       }
     }
     setLoading(false);
@@ -66,11 +75,13 @@ export function AppProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    fetchUserCompanies();
+    if (session) {
+      fetchUserCompanies();
+    }
   }, [session, fetchUserCompanies]);
 
   const selectCompany = (companyId) => {
-    const company = companies.find((c) => c.id === companyId);
+    const company = companies.find((c) => String(c.id) === String(companyId));
     if (company) {
       setActiveCompany(company);
       localStorage.setItem("activeCompanyId", company.id);
@@ -84,7 +95,7 @@ export function AppProvider({ children }) {
     activeCompany,
     loading,
     selectCompany,
-    refreshCompanies: fetchUserCompanies, // Función para recargar los datos
+    refreshCompanies: fetchUserCompanies,
   };
 
   return (

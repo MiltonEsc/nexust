@@ -11,21 +11,30 @@ import DeleteCompanyModal from "../components/modals/DeleteCompanyModal";
 const InviteForm = ({ company, onSuccess }) => {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    // Llama a la Edge Function para invitar
-    const { error } = await supabase.functions.invoke("invite-user", {
+    setError("");
+    setMessage("");
+
+    const { data, error } = await supabase.functions.invoke("invite-user", {
       body: { company_id: company.id, email },
     });
+
     setLoading(false);
 
     if (error) {
-      alert("Error al invitar: " + error.message);
+      const errorMessage = error.context?.json?.error || error.message;
+      setError(errorMessage);
     } else {
-      alert(`Invitación enviada a ${email}`);
-      onSuccess();
+      setMessage(`Invitación enviada con éxito a ${email}`);
+      setEmail("");
+      setTimeout(() => {
+        onSuccess();
+      }, 2000);
     }
   };
 
@@ -43,6 +52,8 @@ const InviteForm = ({ company, onSuccess }) => {
           className="input-style"
         />
       </div>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {message && <p className="text-sm text-green-600">{message}</p>}
       <div className="text-right">
         <button type="submit" disabled={loading} className="btn-primary">
           {loading ? "Enviando..." : "Enviar Invitación"}
@@ -54,19 +65,26 @@ const InviteForm = ({ company, onSuccess }) => {
 
 // --- Componente Principal de la Página ---
 function EmpresasPage() {
-  const { companies, invitations, loading, error, refreshCompanies, session } =
+  const { companies, invitations, loading, refreshCompanies, session } =
     useAppContext();
   const [members, setMembers] = useState({});
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [companyToInvite, setCompanyToInvite] = useState(null);
-  const [companyToDelete, setCompanyToDelete] = useState(null); // <-- Estado para el modal de borrado
+  const [companyToDelete, setCompanyToDelete] = useState(null);
 
   useEffect(() => {
     if (companies.length > 0) {
       companies.forEach((company) => {
         supabase
           .rpc("get_company_members", { p_company_id: company.id })
-          .then(({ data }) => {
+          .then(({ data, error }) => {
+            if (error) {
+              console.error(
+                `Error fetching members for company ${company.id}:`,
+                error
+              );
+              return;
+            }
             if (data) setMembers((prev) => ({ ...prev, [company.id]: data }));
           });
       });
@@ -74,27 +92,30 @@ function EmpresasPage() {
   }, [companies]);
 
   const handleAcceptInvite = async (companyId) => {
+    if (!session) return;
     const { error } = await supabase
       .from("company_users")
       .update({ status: "accepted" })
-      .eq("company_id", companyId);
+      .eq("company_id", companyId)
+      .eq("user_id", session.user.id);
     if (error) alert(error.message);
     else refreshCompanies();
   };
 
   const handleDeclineInvite = async (companyId) => {
+    if (!session) return;
     if (window.confirm("¿Seguro que quieres rechazar esta invitación?")) {
       const { error } = await supabase
         .from("company_users")
         .delete()
-        .eq("company_id", companyId);
+        .eq("company_id", companyId)
+        .eq("user_id", session.user.id);
       if (error) alert(error.message);
       else refreshCompanies();
     }
   };
 
   if (loading) return <p className="p-4 text-center">Cargando...</p>;
-  if (error) return <p className="p-4 text-center text-red-500">{error}</p>;
 
   return (
     <div className="p-6 sm:p-8 bg-white rounded-xl shadow-lg max-w-4xl mx-auto space-y-8">
@@ -160,7 +181,6 @@ function EmpresasPage() {
                     >
                       Invitar
                     </button>
-                    {/* Botón de eliminar ahora abre el modal de confirmación */}
                     <button
                       onClick={() => setCompanyToDelete(company)}
                       className="btn-danger text-sm"
@@ -186,7 +206,7 @@ function EmpresasPage() {
             </div>
           ))
         ) : (
-          <p>No perteneces a ninguna empresa.</p>
+          <p>No perteneces a ninguna empresa activa.</p>
         )}
       </div>
 
@@ -216,7 +236,6 @@ function EmpresasPage() {
         )}
       </Modal>
 
-      {/* Renderizamos el nuevo modal de borrado */}
       <DeleteCompanyModal
         company={companyToDelete}
         onClose={() => setCompanyToDelete(null)}

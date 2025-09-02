@@ -249,7 +249,7 @@ function PerifericoForm({ itemToEdit, onSuccess, activeCompanyId }) {
             name="imagen"
             onChange={handleFileChange}
             accept="image/*"
-            className="mt-1 w-full text-sm"
+            className="input-style-file"
           />
         </div>
       </div>

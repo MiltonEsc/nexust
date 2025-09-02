@@ -10,6 +10,7 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
     descripcion: "",
     tecnico: "",
   });
+  const [evidenceFile, setEvidenceFile] = useState(null);
   const [equipos, setEquipos] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -32,10 +33,33 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const handleFileChange = (e) => {
+    if (e.target.files[0]) {
+      setEvidenceFile(e.target.files[0]);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
+      let evidenceUrl = null;
+      // Subir el archivo a Supabase Storage si existe
+      if (evidenceFile) {
+        const fileName = `${activeCompanyId}/evidencias/${Date.now()}-${
+          evidenceFile.name
+        }`;
+        const { error: uploadError } = await supabase.storage
+          .from("activos") // Puedes usar un bucket 'evidencias' si lo prefieres
+          .upload(fileName, evidenceFile);
+        if (uploadError) throw uploadError;
+
+        const { data } = supabase.storage
+          .from("activos")
+          .getPublicUrl(fileName);
+        evidenceUrl = data.publicUrl;
+      }
+
       const equipoSeleccionado = equipos.find(
         (eq) => eq.id === parseInt(formData.equipo_id)
       );
@@ -46,6 +70,7 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
         fecha: formData.fecha,
         detalle: formData.descripcion,
         tecnico: formData.tecnico,
+        evidencia_url: evidenceUrl, // Guardamos la URL de la evidencia
       };
 
       const nuevaTrazabilidad = [
@@ -70,10 +95,8 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <h3 className="text-xl font-semibold">Registrar Mantenimiento</h3>
       <div>
         <label>Equipo</label>
-        {/* ▼▼▼ ESTILO ACTUALIZADO ▼▼▼ */}
         <select
           name="equipo_id"
           value={formData.equipo_id}
@@ -91,7 +114,6 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
       </div>
       <div>
         <label>Fecha de Mantenimiento</label>
-        {/* ▼▼▼ ESTILO ACTUALIZADO ▼▼▼ */}
         <input
           type="date"
           name="fecha"
@@ -103,7 +125,6 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
       </div>
       <div>
         <label>Técnico Responsable</label>
-        {/* ▼▼▼ ESTILO ACTUALIZADO ▼▼▼ */}
         <input
           type="text"
           name="tecnico"
@@ -114,7 +135,6 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
       </div>
       <div>
         <label>Descripción del Trabajo</label>
-        {/* ▼▼▼ ESTILO ACTUALIZADO ▼▼▼ */}
         <textarea
           name="descripcion"
           value={formData.descripcion}
@@ -124,8 +144,17 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
           className="input-style"
         ></textarea>
       </div>
+      <div>
+        <label>Evidencia (Imagen o PDF)</label>
+        <input
+          type="file"
+          name="evidencia"
+          onChange={handleFileChange}
+          accept="image/*,application/pdf"
+          className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+        />
+      </div>
       <div className="text-right pt-4">
-        {/* ▼▼▼ ESTILO ACTUALIZADO ▼▼▼ */}
         <button type="submit" disabled={loading} className="btn-primary">
           {loading ? "Guardando..." : "Guardar"}
         </button>

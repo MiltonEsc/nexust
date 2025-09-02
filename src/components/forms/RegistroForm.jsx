@@ -38,15 +38,11 @@ function RegistroForm({ registroToEdit, onSuccess }) {
         const companyId = companies[0].company_id;
         setActiveCompanyId(companyId);
 
-        // --- LÓGICA DE EQUIPOS MEJORADA ---
-        // 1. Empezamos la consulta para obtener equipos de la compañía.
         let equiposQuery = supabase
           .from("equipos")
           .select("id, marca, modelo")
           .eq("company_id", companyId);
 
-        // 2. Filtramos para mostrar solo los disponibles (registro_id es NULL)
-        // O el equipo que ya está asignado a ESTE usuario que estamos editando.
         if (registroToEdit && registroToEdit.equipo_id) {
           equiposQuery = equiposQuery.or(
             `registro_id.is.null,id.eq.${registroToEdit.equipo_id}`
@@ -56,14 +52,14 @@ function RegistroForm({ registroToEdit, onSuccess }) {
         }
 
         const [equiposRes, softwareRes, perifericosRes] = await Promise.all([
-          equiposQuery, // Usamos la consulta que acabamos de construir
+          equiposQuery,
           supabase
             .from("software")
-            .select("id, nombre")
+            .select("id, nombre, version")
             .eq("company_id", companyId),
           supabase
             .from("perifericos")
-            .select("id, tipo, marca")
+            .select("id, tipo, marca, modelo")
             .eq("company_id", companyId),
         ]);
 
@@ -75,7 +71,7 @@ function RegistroForm({ registroToEdit, onSuccess }) {
       }
     };
     fetchInventario();
-  }, [registroToEdit]); // Se recarga si cambiamos de usuario a editar
+  }, [registroToEdit]);
 
   useEffect(() => {
     if (registroToEdit) {
@@ -111,20 +107,88 @@ function RegistroForm({ registroToEdit, onSuccess }) {
     e.preventDefault();
     setLoading(true);
     try {
-      // Obtenemos el ID del equipo que tenía ANTES de la edición
       const oldEquipoId = registroToEdit?.equipo_id;
       const newEquipoId = formData.equipo_id || null;
+      const oldSoftwareIds = registroToEdit?.software_ids || [];
+      const newSoftwareIds = formData.software_ids || [];
+      const oldPerifericosIds = registroToEdit?.perifericos_ids || [];
+      const newPerifericosIds = formData.perifericos_ids || [];
+
+      const newLogs = [];
+      const currentDate = new Date().toISOString();
+
+      // --- LÓGICA DE TRAZABILIDAD AUTOMÁTICA ---
+      // 1. Detectar cambios en Software
+      const softwareAdded = newSoftwareIds.filter(
+        (id) => !oldSoftwareIds.includes(id)
+      );
+      const softwareRemoved = oldSoftwareIds.filter(
+        (id) => !newSoftwareIds.includes(id)
+      );
+
+      softwareAdded.forEach((id) => {
+        const item = inventario.software.find((s) => s.id === id);
+        newLogs.push({
+          fecha: currentDate,
+          accion: "Asignación de Software",
+          detalle: `Se asigna software: ${item.nombre} ${
+            item.version || ""
+          }`.trim(),
+        });
+      });
+      softwareRemoved.forEach((id) => {
+        const item = inventario.software.find((s) => s.id === id);
+        newLogs.push({
+          fecha: currentDate,
+          accion: "Devolución de Software",
+          detalle: `Se devuelve software: ${item.nombre} ${
+            item.version || ""
+          }`.trim(),
+        });
+      });
+
+      // 2. Detectar cambios en Periféricos
+      const perifericosAdded = newPerifericosIds.filter(
+        (id) => !oldPerifericosIds.includes(id)
+      );
+      const perifericosRemoved = oldPerifericosIds.filter(
+        (id) => !newPerifericosIds.includes(id)
+      );
+
+      perifericosAdded.forEach((id) => {
+        const item = inventario.perifericos.find((p) => p.id === id);
+        newLogs.push({
+          fecha: currentDate,
+          accion: "Asignación de Periférico",
+          detalle: `Se asigna periférico: ${item.tipo} ${item.marca} ${
+            item.modelo || ""
+          }`.trim(),
+        });
+      });
+      perifericosRemoved.forEach((id) => {
+        const item = inventario.perifericos.find((p) => p.id === id);
+        newLogs.push({
+          fecha: currentDate,
+          accion: "Devolución de Periférico",
+          detalle: `Se devuelve periférico: ${item.tipo} ${item.marca} ${
+            item.modelo || ""
+          }`.trim(),
+        });
+      });
+
+      const currentTrazabilidad = registroToEdit?.trazabilidad || [];
+      const combinedTrazabilidad = [...currentTrazabilidad, ...newLogs];
 
       const dataToSubmit = {
         ...formData,
         equipo_id: newEquipoId,
         company_id: activeCompanyId,
+        trazabilidad: combinedTrazabilidad, // Incluimos los nuevos logs
       };
 
-      // Guardar el registro de usuario (crear o actualizar)
       let registroResult;
       if (registroToEdit) {
-        const { id, trazabilidad, ...updateData } = dataToSubmit; // Excluimos trazabilidad para no sobreescribirla
+        const { id, ...updateData } = dataToSubmit;
         registroResult = await supabase
           .from("registros")
           .update(updateData)
@@ -142,17 +206,14 @@ function RegistroForm({ registroToEdit, onSuccess }) {
       if (registroResult.error) throw registroResult.error;
       const savedRegistro = registroResult.data;
 
-      // --- ACTUALIZAR LA TABLA DE EQUIPOS ---
-      // Si el equipo ha cambiado...
+      // Actualizar la asignación en la tabla de equipos
       if (oldEquipoId !== newEquipoId) {
-        // 1. Liberar el equipo antiguo (si había uno)
         if (oldEquipoId) {
           await supabase
             .from("equipos")
             .update({ registro_id: null })
             .eq("id", oldEquipoId);
         }
-        // 2. Asignar el equipo nuevo (si se seleccionó uno)
         if (newEquipoId) {
           await supabase
             .from("equipos")
@@ -313,7 +374,7 @@ function RegistroForm({ registroToEdit, onSuccess }) {
           >
             {inventario.software.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.nombre}
+                {s.nombre} {s.version || ""}
               </option>
             ))}
           </select>
@@ -332,7 +393,7 @@ function RegistroForm({ registroToEdit, onSuccess }) {
           >
             {inventario.perifericos.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.tipo} - {p.marca}
+                {p.tipo} - {p.marca} {p.modelo || ""}
               </option>
             ))}
           </select>

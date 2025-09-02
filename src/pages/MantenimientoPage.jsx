@@ -1,21 +1,28 @@
+// src/pages/MantenimientoPage.jsx
+
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
 import Modal from "../components/common/Modal";
 import MantenimientoForm from "../components/forms/MantenimientoForm";
+import Pagination from "../components/common/Pagination"; // Importamos
+
+const ITEMS_PER_PAGE = 10;
 
 function MantenimientoPage() {
   const [maintenanceLogs, setMaintenanceLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-  // Estados para el modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeCompanyId, setActiveCompanyId] = useState(null);
 
-  const fetchMaintenanceData = async () => {
+  // Estados de paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+
+  const fetchMaintenanceData = async (page) => {
     setLoading(true);
+    setError(null);
     try {
-      // Obtenemos el companyId si no lo tenemos
       let companyId = activeCompanyId;
       if (!companyId) {
         const { data: companies, error: companyError } = await supabase
@@ -23,7 +30,6 @@ function MantenimientoPage() {
           .select("company_id")
           .limit(1);
         if (companyError) throw companyError;
-
         if (companies && companies.length > 0) {
           companyId = companies[0].company_id;
           setActiveCompanyId(companyId);
@@ -32,26 +38,23 @@ function MantenimientoPage() {
         }
       }
 
-      const { data: equipos, error: equiposError } = await supabase
-        .from("equipos")
-        .select("id, marca, modelo, trazabilidad")
-        .eq("company_id", companyId);
+      // Llamamos a las funciones RPC en paralelo
+      const [logsRes, countRes] = await Promise.all([
+        supabase.rpc("get_paginated_maintenance_logs", {
+          p_company_id: companyId,
+          p_page_number: page,
+          p_page_size: ITEMS_PER_PAGE,
+        }),
+        supabase.rpc("get_total_maintenance_logs_count", {
+          p_company_id: companyId,
+        }),
+      ]);
 
-      if (equiposError) throw equiposError;
+      if (logsRes.error) throw logsRes.error;
+      if (countRes.error) throw countRes.error;
 
-      // Transformamos los datos para crear una lista plana de logs de mantenimiento
-      const allLogs = equipos
-        .flatMap((equipo) =>
-          (equipo.trazabilidad || [])
-            .filter((log) => log.accion === "Mantenimiento")
-            .map((log) => ({
-              ...log,
-              equipoInfo: `${equipo.marca} ${equipo.modelo}`,
-            }))
-        )
-        .sort((a, b) => new Date(b.fecha) - new Date(a.fecha)); // Ordenamos por fecha
-
-      setMaintenanceLogs(allLogs);
+      setMaintenanceLogs(logsRes.data || []);
+      setTotalItems(countRes.data || 0);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -60,13 +63,16 @@ function MantenimientoPage() {
   };
 
   useEffect(() => {
-    fetchMaintenanceData();
-  }, []);
+    fetchMaintenanceData(currentPage);
+  }, [currentPage]);
 
   const handleSuccess = () => {
     setIsModalOpen(false);
-    fetchMaintenanceData(); // Recargamos los datos para ver el nuevo registro
+    fetchMaintenanceData(1); // Recargamos y vamos a la primera página
+    setCurrentPage(1);
   };
+
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
 
   if (loading)
     return (
@@ -96,12 +102,12 @@ function MantenimientoPage() {
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {maintenanceLogs.length > 0 ? (
-              maintenanceLogs.map((log, index) => (
-                <tr key={`${log.fecha}-${index}`}>
+              maintenanceLogs.map((log) => (
+                <tr key={log.log_id}>
                   <td className="td-cell">
                     {new Date(log.fecha).toLocaleDateString()}
                   </td>
-                  <td className="td-cell font-medium">{log.equipoInfo}</td>
+                  <td className="td-cell font-medium">{log.equipo_info}</td>
                   <td className="td-cell">{log.detalle}</td>
                   <td className="td-cell">{log.tecnico || "N/A"}</td>
                 </tr>
@@ -116,6 +122,12 @@ function MantenimientoPage() {
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={(page) => setCurrentPage(page)}
+      />
 
       <Modal
         isOpen={isModalOpen}

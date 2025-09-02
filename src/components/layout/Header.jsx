@@ -7,7 +7,7 @@ import Dropdown from "../common/Dropdown";
 import { useAppContext } from "../../context/AppContext";
 
 function Header() {
-  const { session, companies, activeCompany, selectCompany } = useAppContext(); // Obtenemos los datos globales
+  const { session, companies, activeCompany, selectCompany } = useAppContext();
   const location = useLocation();
   const { pathname } = location;
 
@@ -15,9 +15,10 @@ function Header() {
     await supabase.auth.signOut();
   };
 
+  // ▼▼▼ CORRECCIÓN APLICADA AQUÍ ▼▼▼
   const handleCompanyChange = (e) => {
     selectCompany(e.target.value);
-    window.location.reload(); // Forzamos un refresco para recargar los datos en todas las páginas
+    // Se eliminó la línea "window.location.reload();"
   };
 
   const gestionRoutes = ["/hojas-de-vida", "/inventario", "/mantenimiento"];
@@ -34,7 +35,7 @@ function Header() {
             {activeCompany && (
               <select
                 onChange={handleCompanyChange}
-                value={activeCompany.id}
+                value={activeCompany ? activeCompany.id : ""} // Aseguramos un valor controlado
                 className="hidden sm:block bg-gray-50 border-gray-300 text-sm rounded-lg w-full max-w-xs p-2"
               >
                 {companies.map((company) => (
@@ -60,7 +61,6 @@ function Header() {
                 pathname.startsWith(route)
               )}
             >
-              {/* Estilos aplicados directamente a cada Link */}
               <Link
                 to="/hojas-de-vida"
                 className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"

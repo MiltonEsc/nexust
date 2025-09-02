@@ -4,6 +4,9 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
 import Modal from "../components/common/Modal";
 import ProveedorForm from "../components/forms/ProveedorForm";
+import Pagination from "../components/common/Pagination"; // Importamos
+
+const ITEMS_PER_PAGE = 10;
 
 function ProveedoresPage() {
   const [proveedores, setProveedores] = useState([]);
@@ -13,9 +16,17 @@ function ProveedoresPage() {
   const [editingItem, setEditingItem] = useState(null);
   const [activeCompanyId, setActiveCompanyId] = useState(null);
 
-  const fetchData = async () => {
+  // Estados para paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+
+  const fetchData = async (page) => {
     setLoading(true);
     setError(null);
+
+    const from = (page - 1) * ITEMS_PER_PAGE;
+    const to = from + ITEMS_PER_PAGE - 1;
+
     try {
       let companyId = activeCompanyId;
       if (!companyId) {
@@ -30,12 +41,15 @@ function ProveedoresPage() {
           throw new Error("Usuario sin compañía activa.");
         }
       }
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from("proveedores")
-        .select("*")
-        .eq("company_id", companyId);
+        .select("*", { count: "exact" })
+        .eq("company_id", companyId)
+        .range(from, to);
+
       if (error) throw error;
       setProveedores(data || []);
+      setTotalItems(count || 0);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -44,8 +58,28 @@ function ProveedoresPage() {
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    fetchData(currentPage);
+  }, [currentPage]); // Se ejecuta cuando cambia la página
+
+  const handleSuccess = () => {
+    handleCloseModal();
+    // Vuelve a la página 1 si es una nueva creación, o se mantiene si es edición
+    if (!editingItem) {
+      setCurrentPage(1);
+    }
+    fetchData(editingItem ? currentPage : 1);
+  };
+
+  const handleDelete = async (id) => {
+    if (window.confirm("¿Seguro que quieres eliminar este proveedor?")) {
+      const { error } = await supabase
+        .from("proveedores")
+        .delete()
+        .eq("id", id);
+      if (error) alert(error.message);
+      else fetchData(currentPage);
+    }
+  };
 
   const handleAddNew = () => {
     setEditingItem(null);
@@ -56,21 +90,8 @@ function ProveedoresPage() {
     setIsModalOpen(true);
   };
   const handleCloseModal = () => setIsModalOpen(false);
-  const handleSuccess = () => {
-    handleCloseModal();
-    fetchData();
-  };
 
-  const handleDelete = async (id) => {
-    if (window.confirm("¿Seguro que quieres eliminar este proveedor?")) {
-      const { error } = await supabase
-        .from("proveedores")
-        .delete()
-        .eq("id", id);
-      if (error) alert(error.message);
-      else fetchData();
-    }
-  };
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
 
   return (
     <div className="p-6 sm:p-8 bg-white rounded-xl shadow-lg max-w-7xl mx-auto">
@@ -80,47 +101,56 @@ function ProveedoresPage() {
           Añadir Proveedor
         </button>
       </div>
+
       {loading && <p>Cargando...</p>}
       {error && <p className="text-red-600">{error}</p>}
       {!loading && !error && (
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="th-cell">Nombre</th>
-                <th className="th-cell">Contacto</th>
-                <th className="th-cell">Teléfono</th>
-                <th className="th-cell">Email</th>
-                <th className="relative px-6 py-3"></th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {proveedores.map((p) => (
-                <tr key={p.id}>
-                  <td className="td-cell font-medium">{p.nombre}</td>
-                  <td className="td-cell">{p.contacto}</td>
-                  <td className="td-cell">{p.telefono}</td>
-                  <td className="td-cell">{p.email}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleEdit(p)}
-                      className="text-indigo-600 hover:text-indigo-900 mr-4"
-                    >
-                      Editar
-                    </button>
-                    <button
-                      onClick={() => handleDelete(p.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Eliminar
-                    </button>
-                  </td>
+        <>
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="th-cell">Nombre</th>
+                  <th className="th-cell">Contacto</th>
+                  <th className="th-cell">Teléfono</th>
+                  <th className="th-cell">Email</th>
+                  <th className="relative px-6 py-3"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {proveedores.map((p) => (
+                  <tr key={p.id}>
+                    <td className="td-cell font-medium">{p.nombre}</td>
+                    <td className="td-cell">{p.contacto}</td>
+                    <td className="td-cell">{p.telefono}</td>
+                    <td className="td-cell">{p.email}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button
+                        onClick={() => handleEdit(p)}
+                        className="text-indigo-600 hover:text-indigo-900 mr-4"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleDelete(p.id)}
+                        className="text-red-600 hover:text-red-900"
+                      >
+                        Eliminar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={(page) => setCurrentPage(page)}
+          />
+        </>
       )}
+
       <Modal
         isOpen={isModalOpen}
         onClose={handleCloseModal}

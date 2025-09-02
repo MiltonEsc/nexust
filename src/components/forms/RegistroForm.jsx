@@ -33,15 +33,30 @@ function RegistroForm({ registroToEdit, onSuccess }) {
         .from("company_users")
         .select("company_id")
         .limit(1);
+
       if (companies && companies.length > 0) {
         const companyId = companies[0].company_id;
         setActiveCompanyId(companyId);
 
+        // --- LÓGICA DE EQUIPOS MEJORADA ---
+        // 1. Empezamos la consulta para obtener equipos de la compañía.
+        let equiposQuery = supabase
+          .from("equipos")
+          .select("id, marca, modelo")
+          .eq("company_id", companyId);
+
+        // 2. Filtramos para mostrar solo los disponibles (registro_id es NULL)
+        // O el equipo que ya está asignado a ESTE usuario que estamos editando.
+        if (registroToEdit && registroToEdit.equipo_id) {
+          equiposQuery = equiposQuery.or(
+            `registro_id.is.null,id.eq.${registroToEdit.equipo_id}`
+          );
+        } else {
+          equiposQuery = equiposQuery.is("registro_id", null);
+        }
+
         const [equiposRes, softwareRes, perifericosRes] = await Promise.all([
-          supabase
-            .from("equipos")
-            .select("id, marca, modelo")
-            .eq("company_id", companyId),
+          equiposQuery, // Usamos la consulta que acabamos de construir
           supabase
             .from("software")
             .select("id, nombre")
@@ -60,7 +75,7 @@ function RegistroForm({ registroToEdit, onSuccess }) {
       }
     };
     fetchInventario();
-  }, []);
+  }, [registroToEdit]); // Se recarga si cambiamos de usuario a editar
 
   useEffect(() => {
     if (registroToEdit) {
@@ -96,23 +111,56 @@ function RegistroForm({ registroToEdit, onSuccess }) {
     e.preventDefault();
     setLoading(true);
     try {
+      // Obtenemos el ID del equipo que tenía ANTES de la edición
+      const oldEquipoId = registroToEdit?.equipo_id;
+      const newEquipoId = formData.equipo_id || null;
+
       const dataToSubmit = {
         ...formData,
-        equipo_id: formData.equipo_id || null,
+        equipo_id: newEquipoId,
         company_id: activeCompanyId,
       };
 
-      let error;
+      // Guardar el registro de usuario (crear o actualizar)
+      let registroResult;
       if (registroToEdit) {
-        const { id, ...updateData } = dataToSubmit;
-        ({ error } = await supabase
+        const { id, trazabilidad, ...updateData } = dataToSubmit; // Excluimos trazabilidad para no sobreescribirla
+        registroResult = await supabase
           .from("registros")
           .update(updateData)
-          .eq("id", registroToEdit.id));
+          .eq("id", registroToEdit.id)
+          .select()
+          .single();
       } else {
-        ({ error } = await supabase.from("registros").insert([dataToSubmit]));
+        registroResult = await supabase
+          .from("registros")
+          .insert([dataToSubmit])
+          .select()
+          .single();
       }
-      if (error) throw error;
+
+      if (registroResult.error) throw registroResult.error;
+      const savedRegistro = registroResult.data;
+
+      // --- ACTUALIZAR LA TABLA DE EQUIPOS ---
+      // Si el equipo ha cambiado...
+      if (oldEquipoId !== newEquipoId) {
+        // 1. Liberar el equipo antiguo (si había uno)
+        if (oldEquipoId) {
+          await supabase
+            .from("equipos")
+            .update({ registro_id: null })
+            .eq("id", oldEquipoId);
+        }
+        // 2. Asignar el equipo nuevo (si se seleccionó uno)
+        if (newEquipoId) {
+          await supabase
+            .from("equipos")
+            .update({ registro_id: savedRegistro.id })
+            .eq("id", newEquipoId);
+        }
+      }
+
       onSuccess();
     } catch (error) {
       alert(error.message);
@@ -244,7 +292,7 @@ function RegistroForm({ registroToEdit, onSuccess }) {
             onChange={handleChange}
             className="input-style"
           >
-            <option value="">-- Seleccione un equipo --</option>
+            <option value="">-- Sin asignar equipo --</option>
             {inventario.equipos.map((e) => (
               <option key={e.id} value={e.id}>
                 {e.marca} {e.modelo}

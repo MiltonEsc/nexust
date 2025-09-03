@@ -89,11 +89,108 @@ $$;
 ALTER FUNCTION "public"."create_company_and_add_owner"("company_name" "text") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."get_company_members"("p_company_id" "uuid") RETURNS TABLE("email" "text", "role" "text", "status" "text")
+CREATE OR REPLACE FUNCTION "public"."get_assets_with_depreciation"("p_company_id" "uuid") RETURNS TABLE("id" bigint, "activo" "text", "costo" numeric, "fecha_compra" "date", "vida_util" bigint, "valor_residual" numeric, "depreciacion_anual" numeric, "depreciacion_acumulada" numeric, "valor_actual" numeric)
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        e.id,
+        e.marca || ' ' || e.modelo AS activo,
+        e.costo,
+        e.fecha_compra,
+        e.vida_util,
+        e.valor_residual,
+        
+        -- Depreciación Anual: (Costo - Valor Residual) / Vida Útil
+        CASE
+            WHEN e.vida_util IS NOT NULL AND e.vida_util > 0 THEN
+                (e.costo - e.valor_residual) / e.vida_util
+            ELSE 0
+        END AS depreciacion_anual,
+
+        -- Depreciación Acumulada: Depreciación Anual * Años Transcurridos
+        LEAST(
+            (e.costo - e.valor_residual), 
+            GREATEST(0, 
+                (EXTRACT(epoch FROM AGE(CURRENT_DATE, e.fecha_compra)) / 31557600)
+                * CASE
+                    WHEN e.vida_util IS NOT NULL AND e.vida_util > 0 THEN
+                        (e.costo - e.valor_residual) / e.vida_util
+                    ELSE 0
+                END
+            )
+        ) AS depreciacion_acumulada,
+
+        -- Valor Actual en Libros: Costo - Depreciación Acumulada
+        e.costo - LEAST(
+            (e.costo - e.valor_residual),
+            GREATEST(0, 
+                (EXTRACT(epoch FROM AGE(CURRENT_DATE, e.fecha_compra)) / 31557600) 
+                * CASE
+                    WHEN e.vida_util IS NOT NULL AND e.vida_util > 0 THEN
+                        (e.costo - e.valor_residual) / e.vida_util
+                    ELSE 0
+                END
+            )
+        ) AS valor_actual
+    FROM
+        public.equipos e
+    WHERE
+        e.company_id = p_company_id AND e.costo IS NOT NULL AND e.fecha_compra IS NOT NULL;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_assets_with_depreciation"("p_company_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_combined_trazabilidad"("p_registro_id" bigint) RETURNS TABLE("fecha" timestamp with time zone, "accion" "text", "detalle" "text", "origen" "text", "evidencia_url" "text")
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+    RETURN QUERY
+    -- Parte 1: Obtener la trazabilidad directamente del usuario (registros)
+    SELECT
+        (log->>'fecha')::timestamptz AS fecha,
+        log->>'accion' AS accion,
+        log->>'detalle' AS detalle,
+        'Usuario' AS origen,
+        log->>'evidencia_url' AS evidencia_url
+    FROM
+        registros,
+        jsonb_array_elements(registros.trazabilidad) AS log
+    WHERE
+        registros.id = p_registro_id
+
+    UNION ALL -- Unimos los resultados con la siguiente consulta
+
+    -- Parte 2: Obtener la trazabilidad del equipo asignado al usuario
+    SELECT
+        (log->>'fecha')::timestamptz AS fecha,
+        log->>'accion' AS accion,
+        log->>'detalle' AS detalle,
+        'Equipo' AS origen,
+        log->>'evidencia_url' AS evidencia_url
+    FROM
+        equipos,
+        jsonb_array_elements(equipos.trazabilidad) AS log
+    WHERE
+        equipos.registro_id = p_registro_id
+
+    -- Ordenamos el resultado final por fecha, del más reciente al más antiguo
+    ORDER BY fecha DESC;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_combined_trazabilidad"("p_registro_id" bigint) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_company_members"("p_company_id" "uuid") RETURNS TABLE("user_id" "uuid", "email" "text", "role" "text", "status" "text")
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
 BEGIN
-  -- Comprobación de seguridad: ¿El usuario actual es miembro de la empresa?
   IF NOT EXISTS (
     SELECT 1
     FROM public.company_users cu
@@ -104,10 +201,10 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Consulta principal con la corrección
   RETURN QUERY
   SELECT
-    u.email::text,  -- <--- ¡ESTA ES LA CORRECCIÓN! Convertimos el email a tipo 'text'.
+    u.id as user_id, -- <-- CAMPO AÑADIDO
+    u.email::text,
     cu.role,
     cu.status
   FROM
@@ -136,7 +233,7 @@ $$;
 ALTER FUNCTION "public"."get_my_companies"() OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."get_paginated_maintenance_logs"("p_company_id" "uuid", "p_page_number" integer, "p_page_size" integer) RETURNS TABLE("fecha" timestamp with time zone, "equipo_info" "text", "detalle" "text", "tecnico" "text", "log_id" "text")
+CREATE OR REPLACE FUNCTION "public"."get_paginated_maintenance_logs"("p_company_id" "uuid", "p_page_number" integer, "p_page_size" integer) RETURNS TABLE("fecha" timestamp with time zone, "equipo_info" "text", "detalle" "text", "tecnico" "text", "log_id" "text", "evidencia_url" "text")
     LANGUAGE "plpgsql"
     AS $$
 BEGIN
@@ -146,7 +243,8 @@ BEGIN
         e.marca || ' ' || e.modelo AS equipo_info,
         log->>'detalle' AS detalle,
         log->>'tecnico' AS tecnico,
-        e.id::text || '-' || (log->>'fecha') AS log_id
+        e.id::text || '-' || (log->>'fecha') AS log_id,
+        log->>'evidencia_url' AS evidencia_url -- <-- SELECCIONAMOS EL NUEVO CAMPO
     FROM
         equipos e,
         jsonb_array_elements(e.trazabilidad) AS log
@@ -276,6 +374,22 @@ $$;
 ALTER FUNCTION "public"."get_total_maintenance_logs_count"("p_company_id" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_user_id_by_email"("user_email" "text") RETURNS json
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  RETURN (
+    SELECT json_build_object('id', u.id)
+    FROM auth.users AS u
+    WHERE u.email = user_email
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_user_id_by_email"("user_email" "text") OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."company_users" (
     "company_id" "uuid" NOT NULL,
     "user_id" "uuid" NOT NULL,
@@ -314,6 +428,32 @@ ALTER TABLE "public"."equipos" OWNER TO "postgres";
 
 ALTER TABLE "public"."equipos" ALTER COLUMN "id" ADD GENERATED BY DEFAULT AS IDENTITY (
     SEQUENCE NAME "public"."equipos_id_seq"
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+
+CREATE TABLE IF NOT EXISTS "public"."maintenance_logs" (
+    "id" bigint NOT NULL,
+    "company_id" "uuid",
+    "equipo_id" bigint,
+    "fecha" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "detalle" "text",
+    "tecnico" "text",
+    "evidencia_url" "text",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."maintenance_logs" OWNER TO "postgres";
+
+
+ALTER TABLE "public"."maintenance_logs" ALTER COLUMN "id" ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME "public"."maintenance_logs_id_seq"
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -452,12 +592,17 @@ ALTER TABLE ONLY "public"."company_users"
 
 
 ALTER TABLE ONLY "public"."equipos"
-    ADD CONSTRAINT "equipos_numeroserie_key" UNIQUE ("numero_serie");
+    ADD CONSTRAINT "equipos_company_id_numero_serie_key" UNIQUE ("company_id", "numero_serie");
 
 
 
 ALTER TABLE ONLY "public"."equipos"
     ADD CONSTRAINT "equipos_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."maintenance_logs"
+    ADD CONSTRAINT "maintenance_logs_pkey" PRIMARY KEY ("id");
 
 
 
@@ -506,6 +651,16 @@ ALTER TABLE ONLY "public"."equipos"
 
 
 
+ALTER TABLE ONLY "public"."maintenance_logs"
+    ADD CONSTRAINT "maintenance_logs_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."maintenance_logs"
+    ADD CONSTRAINT "maintenance_logs_equipo_id_fkey" FOREIGN KEY ("equipo_id") REFERENCES "public"."equipos"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."perifericos"
     ADD CONSTRAINT "perifericos_proveedorid_fkey" FOREIGN KEY ("proveedor_id") REFERENCES "public"."proveedores"("id") ON DELETE SET NULL;
 
@@ -540,6 +695,10 @@ CREATE POLICY "Los miembros pueden gestionar el software de sus empresas." ON "p
 
 
 CREATE POLICY "Los miembros pueden gestionar los activos de sus empresas." ON "public"."equipos" USING (("company_id" IN ( SELECT "public"."get_my_companies"() AS "get_my_companies")));
+
+
+
+CREATE POLICY "Los miembros pueden gestionar los logs de su empresa" ON "public"."maintenance_logs" USING (("company_id" IN ( SELECT "public"."get_my_companies"() AS "get_my_companies")));
 
 
 
@@ -620,6 +779,9 @@ ALTER TABLE "public"."company_users" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."equipos" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."maintenance_logs" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."perifericos" ENABLE ROW LEVEL SECURITY;
@@ -812,6 +974,18 @@ GRANT ALL ON FUNCTION "public"."create_company_and_add_owner"("company_name" "te
 
 
 
+GRANT ALL ON FUNCTION "public"."get_assets_with_depreciation"("p_company_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_assets_with_depreciation"("p_company_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_assets_with_depreciation"("p_company_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_combined_trazabilidad"("p_registro_id" bigint) TO "anon";
+GRANT ALL ON FUNCTION "public"."get_combined_trazabilidad"("p_registro_id" bigint) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_combined_trazabilidad"("p_registro_id" bigint) TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_company_members"("p_company_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_company_members"("p_company_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_company_members"("p_company_id" "uuid") TO "service_role";
@@ -854,6 +1028,12 @@ GRANT ALL ON FUNCTION "public"."get_total_maintenance_logs_count"("p_company_id"
 
 
 
+GRANT ALL ON FUNCTION "public"."get_user_id_by_email"("user_email" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_user_id_by_email"("user_email" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_user_id_by_email"("user_email" "text") TO "service_role";
+
+
+
 
 
 
@@ -884,6 +1064,18 @@ GRANT ALL ON TABLE "public"."equipos" TO "service_role";
 GRANT ALL ON SEQUENCE "public"."equipos_id_seq" TO "anon";
 GRANT ALL ON SEQUENCE "public"."equipos_id_seq" TO "authenticated";
 GRANT ALL ON SEQUENCE "public"."equipos_id_seq" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."maintenance_logs" TO "anon";
+GRANT ALL ON TABLE "public"."maintenance_logs" TO "authenticated";
+GRANT ALL ON TABLE "public"."maintenance_logs" TO "service_role";
+
+
+
+GRANT ALL ON SEQUENCE "public"."maintenance_logs_id_seq" TO "anon";
+GRANT ALL ON SEQUENCE "public"."maintenance_logs_id_seq" TO "authenticated";
+GRANT ALL ON SEQUENCE "public"."maintenance_logs_id_seq" TO "service_role";
 
 
 

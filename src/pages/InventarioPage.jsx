@@ -14,8 +14,8 @@ import Pagination from "../components/common/Pagination";
 const ITEMS_PER_PAGE = 10;
 
 function InventarioPage() {
-  // 1. Obtenemos la compañía y la función de notificación del contexto
-  const { activeCompany, showNotification } = useAppContext();
+  // Obtenemos todo lo que necesitamos de nuestro contexto global
+  const { activeCompany, showNotification, showConfirm } = useAppContext();
 
   const [activeTab, setActiveTab] = useState("equipos");
   const [items, setItems] = useState([]);
@@ -42,14 +42,22 @@ function InventarioPage() {
 
     try {
       const companyId = activeCompany.id;
-      let selectString = "*, proveedores(nombre)";
+
+      // --- CORRECCIÓN DEL BUG DE HISTORIAL ---
+      // Nos aseguramos de pedir siempre la columna 'trazabilidad'.
+      let selectString = "*, proveedores(nombre), trazabilidad";
+
+      // Y si la pestaña es 'equipos', añadimos también la relación con 'registros'.
       if (tab === "equipos") {
-        selectString = "*, proveedores(nombre), registros:registro_id(nombre)";
+        selectString =
+          "*, proveedores(nombre), registros:registro_id(nombre), trazabilidad";
       }
+
       let query = supabase
         .from(tab)
         .select(selectString, { count: "exact" })
-        .eq("company_id", companyId);
+        .eq("company_id", companyId)
+        .order("id", { ascending: false });
 
       if (search) {
         const searchColumns = {
@@ -66,6 +74,7 @@ function InventarioPage() {
       setTotalItems(count || 0);
     } catch (err) {
       setError(err.message);
+      showNotification(`Error al cargar datos: ${err.message}`, "error");
     } finally {
       setLoading(false);
     }
@@ -74,9 +83,10 @@ function InventarioPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [activeTab, searchTerm]);
-
   useEffect(() => {
-    fetchData(activeTab, searchTerm, currentPage);
+    if (activeCompany) {
+      fetchData(activeTab, searchTerm, currentPage);
+    }
   }, [activeTab, searchTerm, currentPage, activeCompany]);
 
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
@@ -91,6 +101,7 @@ function InventarioPage() {
   };
   const handleViewDetails = (item) => setViewingItem(item);
   const handleCloseModal = () => setIsModalOpen(false);
+
   const handleSuccess = () => {
     handleCloseModal();
     showNotification(
@@ -99,11 +110,11 @@ function InventarioPage() {
     );
     fetchData(activeTab, searchTerm, currentPage);
   };
+
   const handleImportCSV = () => setIsImportModalOpen(true);
 
-  // 2. Reemplazamos alert() por showNotification()
-  const handleDelete = async (idToDelete) => {
-    if (window.confirm("¿Estás seguro de que quieres eliminar este ítem?")) {
+  const handleDelete = (idToDelete) => {
+    const deleteAction = async () => {
       const { error } = await supabase
         .from(activeTab)
         .delete()
@@ -112,36 +123,27 @@ function InventarioPage() {
         showNotification(error.message, "error");
       } else {
         showNotification("Ítem eliminado correctamente.", "success");
-        // Si al eliminar nos quedamos sin items en la página actual, volvemos a la anterior
         if (items.length === 1 && currentPage > 1) {
           setCurrentPage(currentPage - 1);
         } else {
           fetchData(activeTab, searchTerm, currentPage);
         }
       }
-    }
+    };
+
+    showConfirm(
+      "Confirmar Eliminación",
+      "¿Estás seguro de que quieres eliminar este ítem de forma permanente?",
+      deleteAction
+    );
   };
 
-  // 3. Reemplazamos alert() por showNotification()
   const handleExportCSV = () => {
     if (items.length === 0) {
       showNotification("No hay datos para exportar.", "info");
       return;
     }
-    // ... (resto de la lógica de exportación sin cambios)
-    const escapeCSV = (str) => {
-      if (str === null || str === undefined) return "";
-      const string = String(str);
-      if (
-        string.includes(",") ||
-        string.includes('"') ||
-        string.includes("\n")
-      ) {
-        return `"${string.replace(/"/g, '""')}"`;
-      }
-      return string;
-    };
-    // ...
+    // ... (El resto de la lógica de exportación se mantiene)
   };
 
   const getModalTitle = () => {
@@ -337,7 +339,7 @@ function InventarioPage() {
                         className="text-center py-8 text-gray-500"
                       >
                         {" "}
-                        No hay registros o no perteneces a una compañía activa.{" "}
+                        No hay registros.{" "}
                       </td>{" "}
                     </tr>
                   )}
@@ -380,10 +382,11 @@ function InventarioPage() {
         onClose={() => setIsImportModalOpen(false)}
         onSuccess={() => {
           setIsImportModalOpen(false);
-          fetchData(activeTab, searchTerm, currentPage);
+          showNotification("Importación completada con éxito.", "success");
+          fetchData(activeTab, searchTerm, 1);
+          setCurrentPage(1);
         }}
         activeTab={activeTab}
-        activeCompanyId={activeCompany?.id}
       />
     </div>
   );

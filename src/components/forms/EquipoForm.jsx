@@ -118,6 +118,11 @@ function EquipoForm({ itemToEdit, onSuccess }) {
         imagen: imageUrl ?? formData.imagen,
         factura_pdf_url: facturaUrl ?? formData.factura_pdf_url,
         proveedor_id: formData.proveedor_id || null,
+
+        // ▼▼▼ AQUÍ ESTÁ LA CORRECCIÓN ▼▼▼
+        // Si los campos de fecha están vacíos, los convertimos a null.
+        fecha_compra: formData.fecha_compra || null,
+        fecha_vencimiento_garantia: formData.fecha_vencimiento_garantia || null,
       };
 
       // Limpiamos los datos anidados que no son columnas reales antes de enviar.

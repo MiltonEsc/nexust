@@ -46,7 +46,10 @@ function MantenimientoPage() {
   const [maintenanceLogs, setMaintenanceLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Estados para el modal (crear y editar)
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingLog, setEditingLog] = useState(null);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
@@ -57,29 +60,29 @@ function MantenimientoPage() {
       setMaintenanceLogs([]);
       return;
     }
-
     setLoading(true);
     setError(null);
     try {
-      const companyId = activeCompany.id;
+      const from = (page - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
 
-      // Llamamos a las funciones RPC en paralelo
-      const [logsRes, countRes] = await Promise.all([
-        supabase.rpc("get_paginated_maintenance_logs", {
-          p_company_id: companyId,
-          p_page_number: page,
-          p_page_size: ITEMS_PER_PAGE,
-        }),
-        supabase.rpc("get_total_maintenance_logs_count", {
-          p_company_id: companyId,
-        }),
-      ]);
+      // Leemos desde la nueva tabla 'maintenance_logs' y hacemos un join con equipos
+      const { data, error, count } = await supabase
+        .from("maintenance_logs")
+        .select(
+          `
+          *,
+          equipos (marca, modelo)
+        `,
+          { count: "exact" }
+        )
+        .eq("company_id", activeCompany.id)
+        .order("fecha", { ascending: false })
+        .range(from, to);
 
-      if (logsRes.error) throw logsRes.error;
-      if (countRes.error) throw countRes.error;
-
-      setMaintenanceLogs(logsRes.data || []);
-      setTotalItems(countRes.data || 0);
+      if (error) throw error;
+      setMaintenanceLogs(data || []);
+      setTotalItems(count || 0);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -88,21 +91,53 @@ function MantenimientoPage() {
   };
 
   useEffect(() => {
-    fetchMaintenanceData(currentPage);
+    if (activeCompany) {
+      fetchMaintenanceData(currentPage);
+    }
   }, [currentPage, activeCompany]);
 
-  const handleSuccess = () => {
+  const handleOpenModal = (log = null) => {
+    setEditingLog(log); // Si no hay log, es para crear. Si hay, es para editar.
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setEditingLog(null);
     setIsModalOpen(false);
-    // Si la página actual no es la 1, la cambiamos para ver el nuevo registro
-    if (currentPage !== 1) {
-      setCurrentPage(1);
-    } else {
-      fetchMaintenanceData(1);
+  };
+
+  const handleSuccess = () => {
+    handleCloseModal();
+    fetchMaintenanceData(currentPage);
+  };
+
+  const handleDelete = async (logId) => {
+    if (
+      window.confirm(
+        "¿Estás seguro de que quieres eliminar este registro de mantenimiento?"
+      )
+    ) {
+      try {
+        const { error } = await supabase
+          .from("maintenance_logs")
+          .delete()
+          .eq("id", logId);
+        if (error) throw error;
+        // Si al eliminar nos quedamos sin items en la página actual, volvemos a la anterior
+        if (maintenanceLogs.length === 1 && currentPage > 1) {
+          setCurrentPage(currentPage - 1);
+        } else {
+          fetchMaintenanceData(currentPage);
+        }
+      } catch (error) {
+        alert("Error al eliminar el registro: " + error.message);
+      }
     }
   };
 
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
 
+  // Muestra "Cargando..." solo en la carga inicial
   if (loading && maintenanceLogs.length === 0)
     return (
       <p className="p-4 text-center">Cargando historial de mantenimiento...</p>
@@ -114,40 +149,63 @@ function MantenimientoPage() {
     <div className="p-6 sm:p-8 bg-white rounded-xl shadow-lg max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Historial de Mantenimiento</h1>
-        <button onClick={() => setIsModalOpen(true)} className="btn-primary">
+        <button onClick={() => handleOpenModal()} className="btn-primary">
           Registrar Mantenimiento
         </button>
       </div>
 
-      <div className={`overflow-x-auto ${loading ? "opacity-50" : ""}`}>
+      <div
+        className={`overflow-x-auto transition-opacity ${
+          loading ? "opacity-50" : "opacity-100"
+        }`}
+      >
         <table className="min-w-full">
           <thead className="bg-gray-50">
             <tr>
-              <th className="th-cell">Fecha</th>
               <th className="th-cell">Equipo</th>
+              <th className="th-cell">Fecha</th>
               <th className="th-cell">Descripción</th>
               <th className="th-cell">Técnico</th>
               <th className="th-cell">Evidencia</th>
+              <th className="th-cell">Acciones</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {maintenanceLogs.length > 0 ? (
               maintenanceLogs.map((log) => (
-                <tr key={log.log_id}>
+                <tr key={log.id}>
+                  <td className="td-cell font-medium">
+                    {log.equipos
+                      ? `${log.equipos.marca} ${log.equipos.modelo}`
+                      : "Equipo no encontrado"}
+                  </td>
                   <td className="td-cell">
                     {new Date(log.fecha).toLocaleDateString()}
                   </td>
-                  <td className="td-cell font-medium">{log.equipo_info}</td>
                   <td className="td-cell">{log.detalle}</td>
                   <td className="td-cell">{log.tecnico || "N/A"}</td>
                   <td className="td-cell">
                     <EvidenceDisplay url={log.evidencia_url} />
                   </td>
+                  <td className="td-cell space-x-4 whitespace-nowrap">
+                    <button
+                      onClick={() => handleOpenModal(log)}
+                      className="text-indigo-600 hover:text-indigo-900 text-sm font-medium"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => handleDelete(log.id)}
+                      className="text-red-600 hover:text-red-900 text-sm font-medium"
+                    >
+                      Eliminar
+                    </button>
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan="5" className="text-center py-8 text-gray-500">
+                <td colSpan="6" className="text-center py-8 text-gray-500">
                   No hay registros de mantenimiento.
                 </td>
               </tr>
@@ -162,16 +220,19 @@ function MantenimientoPage() {
         onPageChange={(page) => setCurrentPage(page)}
       />
 
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title="Registrar Nuevo Mantenimiento"
-      >
-        <MantenimientoForm
-          onSuccess={handleSuccess}
-          activeCompanyId={activeCompany?.id}
-        />
-      </Modal>
+      {isModalOpen && (
+        <Modal
+          isOpen={isModalOpen}
+          onClose={handleCloseModal}
+          title={
+            editingLog
+              ? "Editar Mantenimiento"
+              : "Registrar Nuevo Mantenimiento"
+          }
+        >
+          <MantenimientoForm onSuccess={handleSuccess} logToEdit={editingLog} />
+        </Modal>
+      )}
     </div>
   );
 }

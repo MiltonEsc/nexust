@@ -2,11 +2,14 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../supabaseClient";
+import { useAppContext } from "../../context/AppContext";
 
-function MantenimientoForm({ onSuccess, activeCompanyId }) {
+// El formulario ahora recibe el log a editar a través de la prop 'logToEdit'
+function MantenimientoForm({ onSuccess, logToEdit }) {
+  const { activeCompany } = useAppContext();
   const [formData, setFormData] = useState({
     equipo_id: "",
-    fecha: new Date().toISOString().slice(0, 10), // Fecha de hoy por defecto
+    fecha: new Date().toISOString().slice(0, 10),
     descripcion: "",
     tecnico: "",
   });
@@ -14,20 +17,30 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
   const [equipos, setEquipos] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // useEffect para cargar la lista de equipos para el dropdown
   useEffect(() => {
     const fetchEquipos = async () => {
-      if (activeCompanyId) {
-        const { data, error } = await supabase
-          .from("equipos")
-          .select("id, marca, modelo, trazabilidad")
-          .eq("company_id", activeCompanyId);
-        if (error) console.error("Error fetching equipos:", error);
-        else setEquipos(data || []);
-      }
+      if (!activeCompany) return;
+      const { data, error } = await supabase
+        .from("equipos")
+        .select("id, marca, modelo")
+        .eq("company_id", activeCompany.id);
+      if (error) console.error("Error fetching equipos:", error);
+      else setEquipos(data || []);
     };
     fetchEquipos();
-  }, [activeCompanyId]);
+  }, [activeCompany]);
+
+  // Si pasamos un 'logToEdit', llenamos el formulario con sus datos
+  useEffect(() => {
+    if (logToEdit) {
+      setFormData({
+        equipo_id: logToEdit.equipo_id,
+        fecha: new Date(logToEdit.fecha).toISOString().slice(0, 10),
+        descripcion: logToEdit.detalle || "",
+        tecnico: logToEdit.tecnico || "",
+      });
+    }
+  }, [logToEdit]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -43,48 +56,45 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
     e.preventDefault();
     setLoading(true);
     try {
-      let evidenceUrl = null;
-      // Subir el archivo a Supabase Storage si existe
+      let evidenceUrl = logToEdit?.evidencia_url || null; // Mantenemos la evidencia existente si no se sube una nueva
       if (evidenceFile) {
-        const fileName = `${activeCompanyId}/evidencias/${Date.now()}-${
+        const fileName = `${activeCompany.id}/evidencias/${Date.now()}-${
           evidenceFile.name
         }`;
         const { error: uploadError } = await supabase.storage
-          .from("activos") // Puedes usar un bucket 'evidencias' si lo prefieres
+          .from("activos")
           .upload(fileName, evidenceFile);
         if (uploadError) throw uploadError;
-
         const { data } = supabase.storage
           .from("activos")
           .getPublicUrl(fileName);
         evidenceUrl = data.publicUrl;
       }
 
-      const equipoSeleccionado = equipos.find(
-        (eq) => eq.id === parseInt(formData.equipo_id)
-      );
-      if (!equipoSeleccionado) throw new Error("Equipo no encontrado.");
-
-      const nuevoLog = {
-        accion: "Mantenimiento",
+      const dataToSubmit = {
+        company_id: activeCompany.id,
+        equipo_id: formData.equipo_id,
         fecha: formData.fecha,
         detalle: formData.descripcion,
         tecnico: formData.tecnico,
-        evidencia_url: evidenceUrl, // Guardamos la URL de la evidencia
+        evidencia_url: evidenceUrl,
       };
 
-      const nuevaTrazabilidad = [
-        ...(equipoSeleccionado.trazabilidad || []),
-        nuevoLog,
-      ];
-
-      const { error } = await supabase
-        .from("equipos")
-        .update({ trazabilidad: nuevaTrazabilidad })
-        .eq("id", formData.equipo_id);
+      let error;
+      if (logToEdit) {
+        // Modo Edición: Actualizamos el registro existente en la tabla 'maintenance_logs'
+        ({ error } = await supabase
+          .from("maintenance_logs")
+          .update(dataToSubmit)
+          .eq("id", logToEdit.id));
+      } else {
+        // Modo Creación: Insertamos un nuevo registro en la tabla 'maintenance_logs'
+        ({ error } = await supabase
+          .from("maintenance_logs")
+          .insert(dataToSubmit));
+      }
 
       if (error) throw error;
-
       onSuccess();
     } catch (error) {
       alert(error.message);
@@ -95,6 +105,7 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* El campo de equipo se deshabilita en modo edición para no cambiar el log a otro equipo */}
       <div>
         <label>Equipo</label>
         <select
@@ -102,7 +113,8 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
           value={formData.equipo_id}
           onChange={handleChange}
           required
-          className="input-style"
+          disabled={!!logToEdit} // Deshabilitado en modo edición
+          className="input-style disabled:bg-gray-100 disabled:cursor-not-allowed"
         >
           <option value="">-- Seleccione un equipo --</option>
           {equipos.map((e) => (
@@ -151,9 +163,24 @@ function MantenimientoForm({ onSuccess, activeCompanyId }) {
           name="evidencia"
           onChange={handleFileChange}
           accept="image/*,application/pdf"
-          className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+          className="input-style-file"
         />
+        {logToEdit && logToEdit.evidencia_url && (
+          <p className="text-xs text-gray-500 mt-1">
+            Archivo actual:{" "}
+            <a
+              href={logToEdit.evidencia_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline"
+            >
+              Ver Evidencia
+            </a>
+            . Sube un nuevo archivo para reemplazarlo.
+          </p>
+        )}
       </div>
+
       <div className="text-right pt-4">
         <button type="submit" disabled={loading} className="btn-primary">
           {loading ? "Guardando..." : "Guardar"}

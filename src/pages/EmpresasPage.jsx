@@ -7,17 +7,19 @@ import Modal from "../components/common/Modal";
 import CompanyForm from "../components/forms/CompanyForm";
 import DeleteCompanyModal from "../components/modals/DeleteCompanyModal";
 
-// --- Componente de Formulario para Invitar ---
+// --- Componente de Formulario para Invitar (CORREGIDO) ---
 const InviteForm = ({ company, onSuccess }) => {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [warning, setWarning] = useState(""); // 1. Nuevo estado para advertencias
   const [message, setMessage] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setWarning(""); // Limpiamos la advertencia anterior
     setMessage("");
 
     const { data, error } = await supabase.functions.invoke("invite-user", {
@@ -26,11 +28,32 @@ const InviteForm = ({ company, onSuccess }) => {
 
     setLoading(false);
 
+    // 2. Lógica de manejo de errores mejorada
     if (error) {
-      const errorMessage = error.context?.json?.error || error.message;
-      setError(errorMessage);
+      if (error.context?.status === 409) {
+        // Caso especial: El usuario ya es miembro (Conflicto)
+        try {
+          const details = await error.context.json();
+          setWarning(details.message); // Usamos el estado de advertencia
+        } catch {
+          setWarning(
+            "Este usuario ya ha sido invitado o ya es miembro de esta empresa."
+          );
+        }
+      } else {
+        // Otros errores (ej. 400 - usuario no existe, 500 - error del servidor)
+        try {
+          const details = await error.context.json();
+          // Usamos el mensaje de error que enviamos desde la función
+          setError(details.error || error.message);
+        } catch {
+          // Si el cuerpo del error no es JSON, usamos el mensaje por defecto
+          setError(error.message);
+        }
+      }
     } else {
-      setMessage(`Invitación enviada con éxito a ${email}`);
+      // Caso de éxito
+      setMessage(data.message || `Invitación enviada con éxito a ${email}`);
       setEmail("");
       setTimeout(() => {
         onSuccess();
@@ -52,8 +75,14 @@ const InviteForm = ({ company, onSuccess }) => {
           className="input-style"
         />
       </div>
+
+      {/* 3. Mostrar los diferentes mensajes */}
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {warning && (
+        <p className="text-sm text-orange-600 font-medium">{warning}</p>
+      )}
       {message && <p className="text-sm text-green-600">{message}</p>}
+
       <div className="text-right">
         <button type="submit" disabled={loading} className="btn-primary">
           {loading ? "Enviando..." : "Enviar Invitación"}

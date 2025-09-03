@@ -1,4 +1,4 @@
-// supabase/functions/leave-company/index.ts
+// supabase/functions/remove-member/index.ts
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -10,10 +10,10 @@ serve(async (req) => {
   }
 
   try {
-    const { company_id } = await req.json();
+    const { company_id, member_user_id } = await req.json();
     const authHeader = req.headers.get('Authorization')!;
 
-    // 1. Cliente con el token del usuario para obtener su ID y verificar que no es el dueño
+    // 1. Cliente con el token del usuario para verificar que es el dueño
     const supabaseUser = createClient(
         Deno.env.get('SUPABASE_URL') ?? '',
         Deno.env.get('SUPABASE_ANON_KEY') ?? '',
@@ -22,36 +22,38 @@ serve(async (req) => {
     const { data: { user } } = await supabaseUser.auth.getUser();
     if (!user) throw new Error("Usuario no autenticado.");
 
-    // 2. Verificamos que el usuario NO es el dueño de la empresa
+    // 2. Verificamos que el usuario que llama es el dueño de la empresa
     const { data: company, error: ownerError } = await supabaseUser
       .from('companies')
       .select('owner_id')
       .eq('id', company_id)
       .single();
 
-    if (ownerError || !company) {
-      throw new Error('La empresa no existe.');
+    if (ownerError || !company || company.owner_id !== user.id) {
+      throw new Error('No tienes permiso para eliminar miembros de esta empresa.');
     }
-    if (company.owner_id === user.id) {
-        throw new Error('El propietario no puede abandonar la empresa, debe eliminarla.');
+
+    // 3. Verificamos que el dueño no intente eliminarse a sí mismo
+    if (user.id === member_user_id) {
+        throw new Error('El propietario no puede eliminarse a sí mismo de la empresa.');
     }
-    
-    // ▼▼▼ AQUÍ ESTÁ LA CORRECCIÓN ▼▼▼
-    // 3. Usamos el cliente ADMIN para realizar el borrado, saltando la RLS.
+
+    // 4. Cliente Admin para realizar la eliminación
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
     
+    // 5. Eliminamos al miembro de la tabla company_users
     const { error: deleteError } = await supabaseAdmin
       .from('company_users')
       .delete()
       .eq('company_id', company_id)
-      .eq('user_id', user.id); // Eliminamos la membresía del usuario actual
+      .eq('user_id', member_user_id);
 
     if (deleteError) throw deleteError;
 
-    return new Response(JSON.stringify({ message: 'Has salido de la empresa.' }), {
+    return new Response(JSON.stringify({ message: 'Miembro eliminado con éxito.' }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });

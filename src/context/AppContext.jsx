@@ -8,6 +8,7 @@ import React, {
   useCallback,
 } from "react";
 import { supabase } from "../supabaseClient";
+import toast from "react-hot-toast"; // Importar react-hot-toast
 
 const AppContext = createContext();
 
@@ -18,16 +19,58 @@ export function AppProvider({ children }) {
   const [activeCompany, setActiveCompany] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // --- LÓGICA DE NOTIFICACIONES (con react-hot-toast) ---
+  const showNotification = useCallback((message, type = "info") => {
+    switch (type) {
+      case "success":
+        toast.success(message);
+        break;
+      case "error":
+        toast.error(message);
+        break;
+      case "info":
+      default:
+        toast(message, {
+          icon: "ℹ️",
+        });
+        break;
+    }
+  }, []);
+
+  // --- LÓGICA DE MODAL DE CONFIRMACIÓN ---
+  const [confirmState, setConfirmState] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
+
+  const showConfirm = useCallback((title, message, onConfirm) => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => onConfirm, // Guardamos la función a ejecutar
+    });
+  }, []);
+
+  const hideConfirm = () => {
+    setConfirmState({
+      isOpen: false,
+      title: "",
+      message: "",
+      onConfirm: () => {},
+    });
+  };
+
+  // --- LÓGICA DE DATOS (sin cambios) ---
   const fetchUserCompanies = useCallback(async () => {
     if (!session) return;
 
-    // ▼▼▼ CONSULTA CORREGIDA ▼▼▼
-    // Ahora filtramos explícitamente por el user_id del usuario actual.
-    // Esto asegura que solo veamos las invitaciones dirigidas a nosotros.
     const { data, error } = await supabase
       .from("company_users")
       .select("status, role, companies(*)")
-      .eq("user_id", session.user.id); // <-- LA LÍNEA CLAVE
+      .eq("user_id", session.user.id);
 
     if (data) {
       const allCompanies = data.map((item) => ({
@@ -42,7 +85,6 @@ export function AppProvider({ children }) {
       setInvitations(pending);
 
       const lastCompanyId = localStorage.getItem("activeCompanyId");
-      // Buscamos la compañía activa solo entre las aceptadas
       const lastCompany = accepted.find((c) => String(c.id) === lastCompanyId);
 
       if (lastCompany) {
@@ -51,7 +93,6 @@ export function AppProvider({ children }) {
         setActiveCompany(accepted[0]);
         localStorage.setItem("activeCompanyId", accepted[0].id);
       } else {
-        // Si no hay compañías aceptadas, nos aseguramos de que no haya una activa.
         setActiveCompany(null);
         localStorage.removeItem("activeCompanyId");
       }
@@ -88,6 +129,7 @@ export function AppProvider({ children }) {
     }
   };
 
+  // Objeto de valor que se pasa a los componentes hijos
   const value = {
     session,
     companies,
@@ -96,6 +138,10 @@ export function AppProvider({ children }) {
     loading,
     selectCompany,
     refreshCompanies: fetchUserCompanies,
+    showNotification,
+    confirmState,
+    showConfirm,
+    hideConfirm,
   };
 
   return (

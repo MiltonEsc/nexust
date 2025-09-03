@@ -5,6 +5,7 @@ import { AppProvider, useAppContext } from "./context/AppContext";
 // Layouts & Pages
 import AuthPage from "./pages/AuthPage";
 import MainLayout from "./components/layout/MainLayout";
+import { Toaster } from "react-hot-toast";
 import DashboardPage from "./pages/DashboardPage";
 import InventarioPage from "./pages/InventarioPage";
 import HojasDeVidaPage from "./pages/HojasDeVidaPage";
@@ -63,6 +64,16 @@ function AppRoutes() {
 function App() {
   return (
     <AppProvider>
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: "#363636",
+            color: "#fff",
+          },
+        }}
+      />
       <AppRoutes />
     </AppProvider>
   );

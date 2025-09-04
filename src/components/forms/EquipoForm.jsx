@@ -128,6 +128,7 @@ function EquipoForm({ itemToEdit, onSuccess }) {
       // Limpiamos los datos anidados que no son columnas reales antes de enviar.
       delete dataToSubmit.proveedores;
       delete dataToSubmit.registros;
+      delete dataToSubmit.maintenance_logs;
 
       let error;
       if (itemToEdit) {

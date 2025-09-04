@@ -57,7 +57,7 @@ function AssetDetailModal({ asset, onClose }) {
       isOpen={!!asset}
       onClose={onClose}
       title={title}
-      maxWidth="max-w-4xl"
+      maxWidth="max-w-6xl"
     >
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-1">
@@ -147,41 +147,57 @@ function AssetDetailModal({ asset, onClose }) {
 
       <hr className="my-6" />
 
-      <h4 className="font-semibold text-lg mb-2">Historial del Activo</h4>
-      <div className="overflow-y-auto max-h-64">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50 sticky top-0">
-            <tr>
-              <th className="th-cell">Fecha</th>
-              <th className="th-cell">Acción</th>
-              <th className="th-cell">Detalle</th>
-              <th className="th-cell">Evidencia</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {(asset.trazabilidad || []).length > 0 ? (
-              [...asset.trazabilidad].reverse().map((log, index) => (
-                <tr key={index}>
-                  <td className="td-cell whitespace-nowrap">
-                    {new Date(log.fecha).toLocaleString()}
-                  </td>
-                  <td className="td-cell">{log.accion}</td>
-                  <td className="td-cell">{log.detalle}</td>
-                  <td className="td-cell">
-                    <EvidenceDisplay url={log.evidencia_url} />
-                  </td>
+      {/* Sección de Mantenimientos - Solo para equipos */}
+      {!isSoftware && (
+        <>
+          <h4 className="font-semibold text-lg mb-2">
+            Historial de Mantenimientos
+          </h4>
+          <div className="overflow-y-auto max-h-64 mb-6">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr>
+                  <th className="th-cell">Fecha</th>
+                  <th className="th-cell">Técnico</th>
+                  <th className="th-cell">Detalle</th>
+                  <th className="th-cell">Evidencia</th>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan="4" className="text-center py-4 text-gray-500">
-                  No hay historial para este activo.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {(asset.maintenance_logs || []).length > 0 ? (
+                  asset.maintenance_logs
+                    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+                    .map((log) => (
+                      <tr key={log.id}>
+                        <td className="td-cell whitespace-nowrap">
+                          {new Date(log.fecha).toLocaleDateString()}
+                        </td>
+                        <td className="td-cell">{log.tecnico || "N/A"}</td>
+                        <td className="td-cell">
+                          <div className="max-w-xs">
+                            <p className="truncate" title={log.detalle}>
+                              {log.detalle || "Sin descripción"}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="td-cell">
+                          <EvidenceDisplay url={log.evidencia_url} />
+                        </td>
+                      </tr>
+                    ))
+                ) : (
+                  <tr>
+                    <td colSpan="4" className="text-center py-4 text-gray-500">
+                      No hay mantenimientos registrados para este equipo.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <hr className="my-6" />
+        </>
+      )}
     </Modal>
   );
 }

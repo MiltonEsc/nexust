@@ -10,16 +10,35 @@ import PerifericoForm from "../components/forms/PerifericoForm";
 import AssetDetailModal from "../components/modals/AssetDetailModal";
 import ImportCSVModal from "../components/modals/ImportCSVModal";
 import Pagination from "../components/common/Pagination";
+import {
+  MagnifyingGlassIcon,
+  PlusIcon,
+  DocumentArrowUpIcon,
+  DocumentArrowDownIcon,
+  ComputerDesktopIcon,
+  CommandLineIcon,
+  CubeIcon,
+  EyeIcon,
+  PencilIcon,
+  TrashIcon,
+  ArrowPathIcon,
+  FunnelIcon,
+  Squares2X2Icon,
+  ListBulletIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  ExclamationCircleIcon,
+} from "@heroicons/react/24/outline";
 
 const ITEMS_PER_PAGE = 10;
 
 function InventarioPage() {
-  // Obtenemos todo lo que necesitamos de nuestro contexto global
   const { activeCompany, showNotification, showConfirm } = useAppContext();
 
   const [activeTab, setActiveTab] = useState("equipos");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
@@ -28,28 +47,29 @@ function InventarioPage() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
+  const [viewMode, setViewMode] = useState("table"); // "table" or "cards"
 
-  // En la función fetchData, necesitas modificar la línea donde defines selectString
-
-  const fetchData = async (tab, search, page) => {
+  const fetchData = async (tab, search, page, isRefresh = false) => {
     if (!activeCompany) {
       setLoading(false);
       setItems([]);
       return;
     }
-    setLoading(true);
+
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
+
     const from = (page - 1) * ITEMS_PER_PAGE;
     const to = from + ITEMS_PER_PAGE - 1;
 
     try {
       const companyId = activeCompany.id;
-
-      // --- CORRECCIÓN DEL BUG DE HISTORIAL Y MANTENIMIENTOS ---
-      // Nos aseguramos de pedir siempre la columna 'trazabilidad'.
       let selectString = "*, proveedores(nombre), trazabilidad";
 
-      // Y si la pestaña es 'equipos', añadimos también la relación con 'registros' Y 'maintenance_logs'.
       if (tab === "equipos") {
         selectString = `*, 
                      proveedores(nombre), 
@@ -90,22 +110,15 @@ function InventarioPage() {
       showNotification(`Error al cargar datos: ${err.message}`, "error");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
+
   const fetchMaintenanceForEquipo = async (equipoId) => {
     try {
       const { data, error } = await supabase
         .from("maintenance_logs")
-        .select(
-          `
-        id,
-        fecha,
-        detalle,
-        tecnico,
-        evidencia_url,
-        created_at
-      `
-        )
+        .select(`id, fecha, detalle, tecnico, evidencia_url, created_at`)
         .eq("equipo_id", equipoId)
         .order("fecha", { ascending: false });
 
@@ -116,9 +129,11 @@ function InventarioPage() {
       return [];
     }
   };
+
   useEffect(() => {
     setCurrentPage(1);
   }, [activeTab, searchTerm]);
+
   useEffect(() => {
     if (activeCompany) {
       fetchData(activeTab, searchTerm, currentPage);
@@ -131,21 +146,21 @@ function InventarioPage() {
     setEditingItem(null);
     setIsModalOpen(true);
   };
+
   const handleEdit = (item) => {
     setEditingItem(item);
     setIsModalOpen(true);
   };
+
   const handleViewDetails = async (item) => {
     let itemWithMaintenance = { ...item };
-
-    // Si es un equipo, cargar sus mantenimientos
     if (activeTab === "equipos") {
       const maintenanceLogs = await fetchMaintenanceForEquipo(item.id);
       itemWithMaintenance.maintenance_logs = maintenanceLogs;
     }
-
     setViewingItem(itemWithMaintenance);
   };
+
   const handleCloseModal = () => setIsModalOpen(false);
 
   const handleSuccess = () => {
@@ -158,6 +173,8 @@ function InventarioPage() {
   };
 
   const handleImportCSV = () => setIsImportModalOpen(true);
+  const handleRefresh = () =>
+    fetchData(activeTab, searchTerm, currentPage, true);
 
   const handleDelete = (idToDelete) => {
     const deleteAction = async () => {
@@ -189,222 +206,506 @@ function InventarioPage() {
       showNotification("No hay datos para exportar.", "info");
       return;
     }
-    // ... (El resto de la lógica de exportación se mantiene)
+    // Lógica de exportación
   };
 
-  const getModalTitle = () => {
-    const action = editingItem ? "Editar" : "Añadir";
-    if (activeTab === "equipos") return `${action} Equipo`;
-    if (activeTab === "software") return `${action} Software`;
-    if (activeTab === "perifericos") return `${action} Periférico`;
-    return "Formulario";
+  const getTabConfig = () => {
+    const configs = {
+      equipos: {
+        title: "Equipos",
+        icon: ComputerDesktopIcon,
+        buttonText: "Equipo",
+        color: "blue",
+      },
+      software: {
+        title: "Software",
+        icon: CommandLineIcon,
+        buttonText: "Software",
+        color: "green",
+      },
+      perifericos: {
+        title: "Periféricos",
+        icon: CubeIcon,
+        buttonText: "Periférico",
+        color: "purple",
+      },
+    };
+    return configs[activeTab] || configs.equipos;
   };
 
-  const getButtonText = () => {
-    if (activeTab === "equipos") return "Equipo";
-    if (activeTab === "software") return "Software";
-    if (activeTab === "perifericos") return "Periférico";
-    return "Ítem";
+  const getStatusBadge = (estado) => {
+    const statusConfig = {
+      Activo: { color: "green", icon: CheckCircleIcon },
+      Inactivo: { color: "red", icon: XCircleIcon },
+      Mantenimiento: { color: "yellow", icon: ExclamationCircleIcon },
+      Disponible: { color: "green", icon: CheckCircleIcon },
+    };
+
+    const config = statusConfig[estado] || {
+      color: "gray",
+      icon: ExclamationCircleIcon,
+    };
+    const Icon = config.icon;
+
+    return (
+      <span
+        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
+        ${
+          config.color === "green"
+            ? "bg-green-50 text-green-700 border border-green-200"
+            : ""
+        }
+        ${
+          config.color === "red"
+            ? "bg-red-50 text-red-700 border border-red-200"
+            : ""
+        }
+        ${
+          config.color === "yellow"
+            ? "bg-yellow-50 text-yellow-700 border border-yellow-200"
+            : ""
+        }
+        ${
+          config.color === "gray"
+            ? "bg-gray-50 text-gray-700 border border-gray-200"
+            : ""
+        }
+      `}
+      >
+        <Icon className="w-3 h-3" />
+        {estado}
+      </span>
+    );
   };
+
+  const LoadingSkeleton = () => (
+    <div className="space-y-4">
+      {[...Array(ITEMS_PER_PAGE)].map((_, index) => (
+        <div
+          key={index}
+          className="animate-pulse bg-white rounded-lg border border-gray-200 p-4"
+        >
+          <div className="flex items-center space-x-4">
+            <div className="w-12 h-12 bg-gray-200 rounded-lg"></div>
+            <div className="flex-1 space-y-2">
+              <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+              <div className="h-3 bg-gray-200 rounded w-1/3"></div>
+            </div>
+            <div className="flex space-x-2">
+              <div className="w-16 h-8 bg-gray-200 rounded"></div>
+              <div className="w-16 h-8 bg-gray-200 rounded"></div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const EmptyState = () => {
+    const config = getTabConfig();
+    const Icon = config.icon;
+
+    return (
+      <div className="text-center py-16">
+        <div
+          className={`mx-auto w-24 h-24 bg-${config.color}-50 rounded-full flex items-center justify-center mb-6`}
+        >
+          <Icon className={`w-12 h-12 text-${config.color}-400`} />
+        </div>
+        <h3 className="text-xl font-semibold text-gray-900 mb-2">
+          {searchTerm
+            ? "No se encontraron resultados"
+            : `No hay ${config.title.toLowerCase()}`}
+        </h3>
+        <p className="text-gray-500 mb-6 max-w-md mx-auto">
+          {searchTerm
+            ? `No encontramos ${config.title.toLowerCase()} que coincidan con "${searchTerm}".`
+            : `Comienza agregando ${config.title.toLowerCase()} a tu inventario.`}
+        </p>
+        {!searchTerm && (
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={handleAddNew}
+              className={`btn-primary inline-flex items-center gap-2`}
+            >
+              <PlusIcon className="w-5 h-5" />
+              Añadir {config.buttonText}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const TableView = () => (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
+            {activeTab === "equipos" && (
+              <tr>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Activo
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Estado
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Asignado A
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Proveedor
+                </th>
+                <th className="relative px-6 py-4">
+                  <span className="sr-only">Acciones</span>
+                </th>
+              </tr>
+            )}
+            {activeTab === "software" && (
+              <tr>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Software
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Versión
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Stock
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Proveedor
+                </th>
+                <th className="relative px-6 py-4">
+                  <span className="sr-only">Acciones</span>
+                </th>
+              </tr>
+            )}
+            {activeTab === "perifericos" && (
+              <tr>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Periférico
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Marca
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Estado
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Proveedor
+                </th>
+                <th className="relative px-6 py-4">
+                  <span className="sr-only">Acciones</span>
+                </th>
+              </tr>
+            )}
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {items.map((item, index) => (
+              <tr
+                key={item.id}
+                className={`hover:bg-gray-50 transition-colors duration-200 ${
+                  index % 2 === 0 ? "bg-white" : "bg-gray-25"
+                }`}
+              >
+                {activeTab === "equipos" && (
+                  <>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0 h-12 w-12">
+                          <div className="h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center">
+                            <ComputerDesktopIcon className="h-6 w-6 text-blue-600" />
+                          </div>
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-sm font-semibold text-gray-900">
+                            {item.marca} {item.modelo}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            S/N: {item.numero_serie}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {getStatusBadge(item.estado)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {item.registros ? (
+                        <div className="flex items-center">
+                          <div className="flex-shrink-0 h-8 w-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                            <span className="text-xs font-medium text-indigo-800">
+                              {item.registros.nombre.charAt(0)}
+                            </span>
+                          </div>
+                          <span className="ml-2">{item.registros.nombre}</span>
+                        </div>
+                      ) : (
+                        getStatusBadge("Disponible")
+                      )}
+                    </td>
+                  </>
+                )}
+                {activeTab === "software" && (
+                  <>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0 h-12 w-12">
+                          <div className="h-12 w-12 rounded-lg bg-green-100 flex items-center justify-center">
+                            <CommandLineIcon className="h-6 w-6 text-green-600" />
+                          </div>
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-sm font-semibold text-gray-900">
+                            {item.nombre}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded-md">
+                        v{item.version}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <span className="font-semibold">{item.stock}</span>{" "}
+                      licencias
+                    </td>
+                  </>
+                )}
+                {activeTab === "perifericos" && (
+                  <>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0 h-12 w-12">
+                          <div className="h-12 w-12 rounded-lg bg-purple-100 flex items-center justify-center">
+                            <CubeIcon className="h-6 w-6 text-purple-600" />
+                          </div>
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-sm font-semibold text-gray-900">
+                            {item.tipo}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {item.modelo}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {item.marca}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {getStatusBadge(item.estado)}
+                    </td>
+                  </>
+                )}
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {item.proveedores?.nombre || "N/A"}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                  <div className="flex items-center justify-end space-x-2">
+                    <button
+                      onClick={() => handleViewDetails(item)}
+                      className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all duration-200"
+                      title="Ver detalles"
+                    >
+                      <EyeIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleEdit(item)}
+                      className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200"
+                      title="Editar"
+                    >
+                      <PencilIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(item.id)}
+                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
+                      title="Eliminar"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const config = getTabConfig();
 
   return (
-    <div className="p-6 sm:p-8 bg-white rounded-xl shadow-lg max-w-7xl mx-auto">
-      <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-        <h2 className="text-2xl font-semibold">Gestión de Inventario</h2>
-        <div className="flex gap-2 w-full sm:w-auto">
-          <button
-            onClick={handleImportCSV}
-            className="btn-success w-full sm:w-auto text-sm"
-          >
-            Importar CSV
-          </button>
-          <button
-            onClick={handleExportCSV}
-            className="btn-secondary w-full sm:w-auto text-sm"
-          >
-            Exportar CSV
-          </button>
-          <button
-            onClick={handleAddNew}
-            className="btn-primary w-full sm:w-auto flex-shrink-0"
-          >
-            Añadir {getButtonText()}
-          </button>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="px-6 py-8">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                Gestión de Inventario TIC
+              </h1>
+              <p className="text-gray-600">
+                {activeCompany
+                  ? `Empresa: ${activeCompany.name}`
+                  : "Selecciona una empresa"}
+                {totalItems > 0 &&
+                  ` • ${totalItems} elemento${totalItems !== 1 ? "s" : ""}`}
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="btn-secondary inline-flex items-center justify-center gap-2"
+              >
+                <ArrowPathIcon
+                  className={`w-5 h-5 ${refreshing ? "animate-spin" : ""}`}
+                />
+                {refreshing ? "Actualizando..." : "Actualizar"}
+              </button>
+              <button
+                onClick={handleImportCSV}
+                className="btn-success inline-flex items-center justify-center gap-2"
+              >
+                <DocumentArrowUpIcon className="w-5 h-5" />
+                Importar
+              </button>
+              <button
+                onClick={handleExportCSV}
+                className="btn-secondary inline-flex items-center justify-center gap-2"
+              >
+                <DocumentArrowDownIcon className="w-5 h-5" />
+                Exportar
+              </button>
+              <button
+                onClick={handleAddNew}
+                className="btn-primary inline-flex items-center justify-center gap-2"
+              >
+                <PlusIcon className="w-5 h-5" />
+                Añadir {config.buttonText}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="flex space-x-4" aria-label="Tabs">
-          <button
-            onClick={() => setActiveTab("equipos")}
-            className={`tab-link ${activeTab === "equipos" ? "active" : ""}`}
-          >
-            Equipos
-          </button>
-          <button
-            onClick={() => setActiveTab("software")}
-            className={`tab-link ${activeTab === "software" ? "active" : ""}`}
-          >
-            Software
-          </button>
-          <button
-            onClick={() => setActiveTab("perifericos")}
-            className={`tab-link ${
-              activeTab === "perifericos" ? "active" : ""
-            }`}
-          >
-            Periféricos
-          </button>
-        </nav>
-      </div>
+      {/* Main Content */}
+      <div className="px-6 py-8">
+        {/* Tabs */}
+        <div className="mb-8">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1">
+            <nav className="flex space-x-1">
+              {["equipos", "software", "perifericos"].map((tab) => {
+                const tabConfig = {
+                  equipos: { title: "Equipos", icon: ComputerDesktopIcon },
+                  software: { title: "Software", icon: CommandLineIcon },
+                  perifericos: { title: "Periféricos", icon: CubeIcon },
+                };
+                const TabIcon = tabConfig[tab].icon;
 
-      <div className="mb-4">
-        <input
-          type="search"
-          placeholder="Buscar..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="input-style w-full sm:w-1/3"
-        />
-      </div>
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200 ${
+                      activeTab === tab
+                        ? "bg-blue-600 text-white shadow-sm"
+                        : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    <TabIcon className="w-4 h-4" />
+                    {tabConfig[tab].title}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        </div>
 
-      <div>
-        {loading && <p className="text-center p-4">Cargando...</p>}
-        {error && (
-          <p className="text-red-600 text-center p-4">Error: {error}</p>
-        )}
-        {!loading && !error && (
-          <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead className="bg-gray-50">
-                  {activeTab === "equipos" && (
-                    <tr>
-                      {" "}
-                      <th className="th-cell">Activo</th>{" "}
-                      <th className="th-cell">Estado</th>{" "}
-                      <th className="th-cell">Asignado A</th>{" "}
-                      <th className="relative px-6 py-3"></th>{" "}
-                    </tr>
-                  )}
-                  {activeTab === "software" && (
-                    <tr>
-                      {" "}
-                      <th className="th-cell">Nombre</th>{" "}
-                      <th className="th-cell">Versión</th>{" "}
-                      <th className="th-cell">Stock</th>{" "}
-                      <th className="relative px-6 py-3"></th>{" "}
-                    </tr>
-                  )}
-                  {activeTab === "perifericos" && (
-                    <tr>
-                      {" "}
-                      <th className="th-cell">Tipo</th>{" "}
-                      <th className="th-cell">Marca</th>{" "}
-                      <th className="th-cell">Modelo</th>{" "}
-                      <th className="th-cell">Estado</th>{" "}
-                      <th className="relative px-6 py-3"></th>{" "}
-                    </tr>
-                  )}
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {items.length > 0 ? (
-                    items.map((item) => (
-                      <tr key={item.id}>
-                        {activeTab === "equipos" && (
-                          <>
-                            <td className="td-cell font-medium">
-                              {" "}
-                              {item.marca} {item.modelo}{" "}
-                              <p className="text-xs text-gray-500">
-                                {" "}
-                                S/N: {item.numero_serie}{" "}
-                              </p>{" "}
-                            </td>
-                            <td className="td-cell">{item.estado}</td>
-                            <td className="td-cell">
-                              {" "}
-                              {item.registros ? (
-                                <span>{item.registros.nombre}</span>
-                              ) : (
-                                <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                                  {" "}
-                                  Disponible{" "}
-                                </span>
-                              )}{" "}
-                            </td>
-                          </>
-                        )}
-                        {activeTab === "software" && (
-                          <>
-                            <td className="td-cell font-medium">
-                              {item.nombre}
-                            </td>
-                            <td className="td-cell">{item.version}</td>
-                            <td className="td-cell">{item.stock}</td>
-                          </>
-                        )}
-                        {activeTab === "perifericos" && (
-                          <>
-                            <td className="td-cell font-medium">{item.tipo}</td>
-                            <td className="td-cell">{item.marca}</td>
-                            <td className="td-cell">{item.modelo}</td>
-                            <td className="td-cell">{item.estado}</td>
-                          </>
-                        )}
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <button
-                            onClick={() => handleViewDetails(item)}
-                            className="text-gray-600 hover:text-indigo-900 mr-4"
-                          >
-                            {" "}
-                            Detalles{" "}
-                          </button>
-                          <button
-                            onClick={() => handleEdit(item)}
-                            className="text-indigo-600 hover:text-indigo-900 mr-4"
-                          >
-                            {" "}
-                            Editar{" "}
-                          </button>
-                          <button
-                            onClick={() => handleDelete(item.id)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            {" "}
-                            Eliminar{" "}
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      {" "}
-                      <td
-                        colSpan="5"
-                        className="text-center py-8 text-gray-500"
-                      >
-                        {" "}
-                        No hay registros.{" "}
-                      </td>{" "}
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+        {/* Search and Filters */}
+        <div className="mb-6 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+          <div className="relative flex-1 max-w-md">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
             </div>
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={(page) => setCurrentPage(page)}
+            <input
+              type="search"
+              placeholder={`Buscar ${config.title.toLowerCase()}...`}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg bg-white 
+                       placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 
+                       focus:border-transparent transition-all duration-200 text-sm shadow-sm"
             />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() =>
+                setViewMode(viewMode === "table" ? "cards" : "table")
+              }
+              className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              title={`Cambiar a vista ${
+                viewMode === "table" ? "tarjetas" : "tabla"
+              }`}
+            >
+              {viewMode === "table" ? (
+                <Squares2X2Icon className="w-5 h-5" />
+              ) : (
+                <ListBulletIcon className="w-5 h-5" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        {error ? (
+          <div className="bg-white rounded-xl shadow-sm border border-red-200 p-16 text-center">
+            <div className="mx-auto w-24 h-24 bg-red-50 rounded-full flex items-center justify-center mb-6">
+              <XCircleIcon className="w-12 h-12 text-red-500" />
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+              Error al cargar datos
+            </h3>
+            <p className="text-gray-500 mb-6">{error}</p>
+            <button onClick={handleRefresh} className="btn-primary">
+              Reintentar
+            </button>
+          </div>
+        ) : loading ? (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <LoadingSkeleton />
+          </div>
+        ) : items.length === 0 ? (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+            <EmptyState />
+          </div>
+        ) : (
+          <>
+            <TableView />
+            {totalPages > 1 && (
+              <div className="mt-8">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={(page) => setCurrentPage(page)}
+                />
+              </div>
+            )}
           </>
         )}
       </div>
 
+      {/* Modals */}
       <Modal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
-        title={getModalTitle()}
+        title={`${editingItem ? "Editar" : "Añadir"} ${config.buttonText}`}
         maxWidth="max-w-4xl"
       >
         {activeTab === "equipos" && (
@@ -439,66 +740,3 @@ function InventarioPage() {
 }
 
 export default InventarioPage;
-// En la función fetchData, necesitas modificar la línea donde defines selectString
-
-const fetchData = async (tab, search, page) => {
-  if (!activeCompany) {
-    setLoading(false);
-    setItems([]);
-    return;
-  }
-  setLoading(true);
-  setError(null);
-  const from = (page - 1) * ITEMS_PER_PAGE;
-  const to = from + ITEMS_PER_PAGE - 1;
-
-  try {
-    const companyId = activeCompany.id;
-
-    // --- CORRECCIÓN DEL BUG DE HISTORIAL Y MANTENIMIENTOS ---
-    // Nos aseguramos de pedir siempre la columna 'trazabilidad'.
-    let selectString = "*, proveedores(nombre), trazabilidad";
-
-    // Y si la pestaña es 'equipos', añadimos también la relación con 'registros' Y 'maintenance_logs'.
-    if (tab === "equipos") {
-      selectString = `*, 
-                     proveedores(nombre), 
-                     registros:registro_id(nombre), 
-                     trazabilidad,
-                     maintenance_logs!equipo_id(
-                       id,
-                       fecha,
-                       detalle,
-                       tecnico,
-                       evidencia_url,
-                       created_at
-                     )`;
-    }
-
-    let query = supabase
-      .from(tab)
-      .select(selectString, { count: "exact" })
-      .eq("company_id", companyId)
-      .order("id", { ascending: false });
-
-    if (search) {
-      const searchColumns = {
-        equipos: `marca.ilike.%${search}%,modelo.ilike.%${search}%,numero_serie.ilike.%${search}%`,
-        software: `nombre.ilike.%${search}%,version.ilike.%${search}%`,
-        perifericos: `tipo.ilike.%${search}%,marca.ilike.%${search}%,modelo.ilike.%${search}%`,
-      };
-      query = query.or(searchColumns[tab]);
-    }
-    
-    query = query.range(from, to);
-    const { data, error, count } = await query;
-    if (error) throw error;
-    setItems(data || []);
-    setTotalItems(count || 0);
-  } catch (err) {
-    setError(err.message);
-    showNotification(`Error al cargar datos: ${err.message}`, "error");
-  } finally {
-    setLoading(false);
-  }
-};

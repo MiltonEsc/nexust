@@ -50,7 +50,9 @@ export function AppProvider({ children }) {
       isOpen: true,
       title,
       message,
-      onConfirm: () => onConfirm, // Guardamos la función a ejecutar
+      // ▼▼▼ AQUÍ ESTÁ LA CORRECCIÓN ▼▼▼
+      // Guardamos la función directamente, sin envolverla en otra.
+      onConfirm: onConfirm,
     });
   }, []);
 

@@ -5,6 +5,7 @@ import { supabase } from "../../supabaseClient";
 import Modal from "../common/Modal";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import AssetRecommender from "../AssetRecommender"; // 1. Importar el nuevo componente
 
 // Componente auxiliar para mostrar la evidencia (imagen o PDF)
 const EvidenceDisplay = ({ url }) => {
@@ -40,14 +41,10 @@ const EvidenceDisplay = ({ url }) => {
 
 function UserDetailModal({ registro, onClose }) {
   const [activeTab, setActiveTab] = useState("activos");
-
-  // Estados para el historial combinado
   const [combinedLogs, setCombinedLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(true);
 
-  // useEffect para llamar a la nueva función RPC cuando se abre el modal
   useEffect(() => {
-    // Solo se ejecuta si hay un registro y cambiamos a la pestaña de trazabilidad
     if (registro && registro.id && activeTab === "trazabilidad") {
       const fetchCombinedLogs = async () => {
         setLoadingLogs(true);
@@ -68,7 +65,7 @@ function UserDetailModal({ registro, onClose }) {
       };
       fetchCombinedLogs();
     }
-  }, [registro, activeTab]); // Se ejecuta cuando el registro o la pestaña activa cambian
+  }, [registro, activeTab]);
 
   if (!registro) return null;
 
@@ -166,7 +163,7 @@ function UserDetailModal({ registro, onClose }) {
         </button>
       </div>
 
-      <div className="p-6">
+      <div className="p-6 max-h-[80vh] overflow-y-auto">
         {/* Sección de Datos del Usuario */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 mb-4">
           <div>
@@ -238,6 +235,15 @@ function UserDetailModal({ registro, onClose }) {
               }`}
             >
               Trazabilidad y Mantenimiento
+            </button>
+            {/* 2. AÑADIR LA NUEVA PESTAÑA */}
+            <button
+              onClick={() => setActiveTab("recomendador")}
+              className={`tab-link ${
+                activeTab === "recomendador" ? "active" : ""
+              }`}
+            >
+              Asistente de IA
             </button>
           </nav>
         </div>
@@ -358,6 +364,13 @@ function UserDetailModal({ registro, onClose }) {
                 </table>
               )}
             </div>
+          </div>
+        )}
+
+        {/* 3. AÑADIR EL CONTENIDO PARA LA NUEVA PESTAÑA */}
+        {activeTab === "recomendador" && (
+          <div className="py-4">
+            <AssetRecommender registroId={registro.id} />
           </div>
         )}
       </div>

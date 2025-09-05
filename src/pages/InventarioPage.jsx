@@ -7,6 +7,7 @@ import Modal from "../components/common/Modal";
 import EquipoForm from "../components/forms/EquipoForm";
 import SoftwareForm from "../components/forms/SoftwareForm";
 import PerifericoForm from "../components/forms/PerifericoForm";
+import ConsumibleForm from "../components/forms/ConsumibleForm"; // Importar el nuevo formulario
 import AssetDetailModal from "../components/modals/AssetDetailModal";
 import ImportCSVModal from "../components/modals/ImportCSVModal";
 import Pagination from "../components/common/Pagination";
@@ -28,6 +29,7 @@ import {
   CheckCircleIcon,
   XCircleIcon,
   ExclamationCircleIcon,
+  ArchiveBoxIcon, // Icono para consumibles
 } from "@heroicons/react/24/outline";
 
 const ITEMS_PER_PAGE = 10;
@@ -47,7 +49,7 @@ function InventarioPage() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
-  const [viewMode, setViewMode] = useState("table"); // "table" or "cards"
+  const [viewMode, setViewMode] = useState("table");
 
   const fetchData = async (tab, search, page, isRefresh = false) => {
     if (!activeCompany) {
@@ -68,21 +70,14 @@ function InventarioPage() {
 
     try {
       const companyId = activeCompany.id;
-      let selectString = "*, proveedores(nombre), trazabilidad";
+      let selectString = "*, proveedores(nombre)";
 
       if (tab === "equipos") {
         selectString = `*, 
                      proveedores(nombre), 
                      registros:registro_id(nombre), 
                      trazabilidad,
-                     maintenance_logs!equipo_id(
-                       id,
-                       fecha,
-                       detalle,
-                       tecnico,
-                       evidencia_url,
-                       created_at
-                     )`;
+                     maintenance_logs!equipo_id(id, fecha, detalle, tecnico, evidencia_url, created_at)`;
       }
 
       let query = supabase
@@ -96,6 +91,7 @@ function InventarioPage() {
           equipos: `marca.ilike.%${search}%,modelo.ilike.%${search}%,numero_serie.ilike.%${search}%`,
           software: `nombre.ilike.%${search}%,version.ilike.%${search}%`,
           perifericos: `tipo.ilike.%${search}%,marca.ilike.%${search}%,modelo.ilike.%${search}%`,
+          consumibles: `nombre.ilike.%${search}%,categoria.ilike.%${search}%`, // Búsqueda para consumibles
         };
         query = query.or(searchColumns[tab]);
       }
@@ -228,6 +224,12 @@ function InventarioPage() {
         icon: CubeIcon,
         buttonText: "Periférico",
         color: "purple",
+      },
+      consumibles: {
+        title: "Consumibles",
+        icon: ArchiveBoxIcon,
+        buttonText: "Consumible",
+        color: "amber",
       },
     };
     return configs[activeTab] || configs.equipos;
@@ -399,6 +401,25 @@ function InventarioPage() {
                 </th>
               </tr>
             )}
+            {activeTab === "consumibles" && (
+              <tr>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Consumible
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Categoría
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Stock
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Proveedor
+                </th>
+                <th className="relative px-6 py-4">
+                  <span className="sr-only">Acciones</span>
+                </th>
+              </tr>
+            )}
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {items.map((item, index) => (
@@ -500,18 +521,57 @@ function InventarioPage() {
                     </td>
                   </>
                 )}
+                {activeTab === "consumibles" && (
+                  <>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0 h-12 w-12 rounded-lg bg-amber-100 flex items-center justify-center">
+                          <ArchiveBoxIcon className="h-6 w-6 text-amber-600" />
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-sm font-semibold text-gray-900">
+                            {item.nombre}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            ID: {item.id}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {item.categoria || "N/A"}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <span
+                        className={`font-semibold ${
+                          item.cantidad <= item.stock_minimo
+                            ? "text-red-600"
+                            : "text-gray-900"
+                        }`}
+                      >
+                        {item.cantidad}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {" "}
+                        (min: {item.stock_minimo})
+                      </span>
+                    </td>
+                  </>
+                )}
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {item.proveedores?.nombre || "N/A"}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                   <div className="flex items-center justify-end space-x-2">
-                    <button
-                      onClick={() => handleViewDetails(item)}
-                      className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all duration-200"
-                      title="Ver detalles"
-                    >
-                      <EyeIcon className="h-4 w-4" />
-                    </button>
+                    {activeTab !== "consumibles" && (
+                      <button
+                        onClick={() => handleViewDetails(item)}
+                        className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all duration-200"
+                        title="Ver detalles"
+                      >
+                        <EyeIcon className="h-4 w-4" />
+                      </button>
+                    )}
                     <button
                       onClick={() => handleEdit(item)}
                       className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200"
@@ -600,29 +660,35 @@ function InventarioPage() {
         <div className="mb-8">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1">
             <nav className="flex space-x-1">
-              {["equipos", "software", "perifericos"].map((tab) => {
-                const tabConfig = {
-                  equipos: { title: "Equipos", icon: ComputerDesktopIcon },
-                  software: { title: "Software", icon: CommandLineIcon },
-                  perifericos: { title: "Periféricos", icon: CubeIcon },
-                };
-                const TabIcon = tabConfig[tab].icon;
+              {["equipos", "software", "perifericos", "consumibles"].map(
+                (tab) => {
+                  const tabConfig = {
+                    equipos: { title: "Equipos", icon: ComputerDesktopIcon },
+                    software: { title: "Software", icon: CommandLineIcon },
+                    perifericos: { title: "Periféricos", icon: CubeIcon },
+                    consumibles: {
+                      title: "Consumibles",
+                      icon: ArchiveBoxIcon,
+                    },
+                  };
+                  const TabIcon = tabConfig[tab].icon;
 
-                return (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200 ${
-                      activeTab === tab
-                        ? "bg-blue-600 text-white shadow-sm"
-                        : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
-                    }`}
-                  >
-                    <TabIcon className="w-4 h-4" />
-                    {tabConfig[tab].title}
-                  </button>
-                );
-              })}
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200 ${
+                        activeTab === tab
+                          ? "bg-blue-600 text-white shadow-sm"
+                          : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                      }`}
+                    >
+                      <TabIcon className="w-4 h-4" />
+                      {tabConfig[tab].title}
+                    </button>
+                  );
+                }
+              )}
             </nav>
           </div>
         </div>
@@ -716,6 +782,9 @@ function InventarioPage() {
         )}
         {activeTab === "perifericos" && (
           <PerifericoForm itemToEdit={editingItem} onSuccess={handleSuccess} />
+        )}
+        {activeTab === "consumibles" && (
+          <ConsumibleForm itemToEdit={editingItem} onSuccess={handleSuccess} />
         )}
       </Modal>
 

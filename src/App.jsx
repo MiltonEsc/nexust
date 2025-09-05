@@ -1,6 +1,7 @@
 import React, { useEffect } from "react"; // <-- CORRECCIÓN APLICADA AQUÍ
 import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { AppProvider, useAppContext } from "./context/AppContext";
+import ConfirmationModal from "./components/common/ConfirmationModal"; 
 
 // Layouts & Pages
 import AuthPage from "./pages/AuthPage";
@@ -75,6 +76,7 @@ function App() {
         }}
       />
       <AppRoutes />
+      <ConfirmationModal />
     </AppProvider>
   );
 }

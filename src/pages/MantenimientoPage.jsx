@@ -6,6 +6,12 @@ import { useAppContext } from "../context/AppContext";
 import Modal from "../components/common/Modal";
 import MantenimientoForm from "../components/forms/MantenimientoForm";
 import Pagination from "../components/common/Pagination";
+import {
+  PencilIcon,
+  TrashIcon,
+  ComputerDesktopIcon,
+  PlusIcon,
+} from "@heroicons/react/24/outline";
 
 const ITEMS_PER_PAGE = 10;
 
@@ -47,7 +53,6 @@ function MantenimientoPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Estados para el modal (crear y editar)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingLog, setEditingLog] = useState(null);
 
@@ -66,13 +71,12 @@ function MantenimientoPage() {
       const from = (page - 1) * ITEMS_PER_PAGE;
       const to = from + ITEMS_PER_PAGE - 1;
 
-      // Leemos desde la nueva tabla 'maintenance_logs' y hacemos un join con equipos
       const { data, error, count } = await supabase
         .from("maintenance_logs")
         .select(
           `
           *,
-          equipos (marca, modelo)
+          equipos (marca, modelo, numero_serie)
         `,
           { count: "exact" }
         )
@@ -97,7 +101,7 @@ function MantenimientoPage() {
   }, [currentPage, activeCompany]);
 
   const handleOpenModal = (log = null) => {
-    setEditingLog(log); // Si no hay log, es para crear. Si hay, es para editar.
+    setEditingLog(log);
     setIsModalOpen(true);
   };
 
@@ -123,7 +127,6 @@ function MantenimientoPage() {
           .delete()
           .eq("id", logId);
         if (error) throw error;
-        // Si al eliminar nos quedamos sin items en la página actual, volvemos a la anterior
         if (maintenanceLogs.length === 1 && currentPage > 1) {
           setCurrentPage(currentPage - 1);
         } else {
@@ -137,88 +140,173 @@ function MantenimientoPage() {
 
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
 
-  // Muestra "Cargando..." solo en la carga inicial
-  if (loading && maintenanceLogs.length === 0)
-    return (
-      <p className="p-4 text-center">Cargando historial de mantenimiento...</p>
-    );
-  if (error)
-    return <p className="p-4 text-center text-red-600">Error: {error}</p>;
+  const LoadingSkeleton = () => (
+    <div className="space-y-2">
+      {[...Array(ITEMS_PER_PAGE)].map((_, index) => (
+        <div
+          key={index}
+          className="animate-pulse bg-white p-4 rounded-lg border border-gray-200 flex items-center justify-between"
+        >
+          <div className="flex items-center gap-4 w-1/4">
+            <div className="w-12 h-12 bg-gray-200 rounded-lg"></div>
+            <div className="flex-1 space-y-2">
+              <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+              <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+            </div>
+          </div>
+          <div className="h-4 bg-gray-200 rounded w-1/12"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/3"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/12"></div>
+          <div className="w-10 h-10 bg-gray-200 rounded-md"></div>
+          <div className="flex gap-2 w-1/12 justify-end">
+            <div className="w-8 h-8 bg-gray-200 rounded-lg"></div>
+            <div className="w-8 h-8 bg-gray-200 rounded-lg"></div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
-    <div className="p-6 sm:p-8 bg-white rounded-xl shadow-lg max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Historial de Mantenimiento</h1>
-        <button onClick={() => handleOpenModal()} className="btn-primary">
-          Registrar Mantenimiento
-        </button>
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-white border-b border-gray-200">
+        <div className="px-6 py-8">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">
+                Historial de Mantenimiento
+              </h1>
+              <p className="text-gray-600 mt-1">
+                Registra y consulta las intervenciones de tus equipos.
+              </p>
+            </div>
+            <button
+              onClick={() => handleOpenModal()}
+              className="btn-primary inline-flex items-center gap-2"
+            >
+              <PlusIcon className="w-5 h-5" />
+              Registrar Mantenimiento
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div
-        className={`overflow-x-auto transition-opacity ${
-          loading ? "opacity-50" : "opacity-100"
-        }`}
-      >
-        <table className="min-w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="th-cell">Equipo</th>
-              <th className="th-cell">Fecha</th>
-              <th className="th-cell">Descripción</th>
-              <th className="th-cell">Técnico</th>
-              <th className="th-cell">Evidencia</th>
-              <th className="th-cell">Acciones</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {maintenanceLogs.length > 0 ? (
-              maintenanceLogs.map((log) => (
-                <tr key={log.id}>
-                  <td className="td-cell font-medium">
-                    {log.equipos
-                      ? `${log.equipos.marca} ${log.equipos.modelo}`
-                      : "Equipo no encontrado"}
-                  </td>
-                  <td className="td-cell">
-                    {new Date(log.fecha).toLocaleDateString()}
-                  </td>
-                  <td className="td-cell">{log.detalle}</td>
-                  <td className="td-cell">{log.tecnico || "N/A"}</td>
-                  <td className="td-cell">
-                    <EvidenceDisplay url={log.evidencia_url} />
-                  </td>
-                  <td className="td-cell space-x-4 whitespace-nowrap">
-                    <button
-                      onClick={() => handleOpenModal(log)}
-                      className="text-indigo-600 hover:text-indigo-900 text-sm font-medium"
-                    >
-                      Editar
-                    </button>
-                    <button
-                      onClick={() => handleDelete(log.id)}
-                      className="text-red-600 hover:text-red-900 text-sm font-medium"
-                    >
-                      Eliminar
-                    </button>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan="6" className="text-center py-8 text-gray-500">
-                  No hay registros de mantenimiento.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="px-6 py-8">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          {loading ? (
+            <div className="p-6">
+              <LoadingSkeleton />
+            </div>
+          ) : error ? (
+            <div className="p-8 text-center text-red-600">Error: {error}</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                      Equipo
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                      Fecha
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                      Descripción
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                      Técnico
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                      Evidencia
+                    </th>
+                    <th className="relative px-6 py-4">
+                      <span className="sr-only">Acciones</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {maintenanceLogs.length > 0 ? (
+                    maintenanceLogs.map((log, index) => (
+                      <tr
+                        key={log.id}
+                        className={`hover:bg-gray-50 transition-colors duration-200 ${
+                          index % 2 === 0 ? "bg-white" : "bg-gray-25"
+                        }`}
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center">
+                              <ComputerDesktopIcon className="h-6 w-6 text-blue-600" />
+                            </div>
+                            <div className="ml-4">
+                              <div className="text-sm font-semibold text-gray-900">
+                                {log.equipos
+                                  ? `${log.equipos.marca} ${log.equipos.modelo}`
+                                  : "Equipo no encontrado"}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                S/N: {log.equipos?.numero_serie || "N/A"}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
+                          {new Date(log.fecha).toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-800 max-w-sm truncate">
+                          {log.detalle}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
+                          {log.tecnico || "N/A"}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <EvidenceDisplay url={log.evidencia_url} />
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex items-center justify-end space-x-2">
+                            <button
+                              onClick={() => handleOpenModal(log)}
+                              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200"
+                              title="Editar"
+                            >
+                              <PencilIcon className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(log.id)}
+                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
+                              title="Eliminar"
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td
+                        colSpan="6"
+                        className="text-center py-16 text-gray-500"
+                      >
+                        No hay registros de mantenimiento.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        {totalPages > 1 && (
+          <div className="mt-8">
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={(page) => setCurrentPage(page)}
+            />
+          </div>
+        )}
       </div>
-
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={(page) => setCurrentPage(page)}
-      />
 
       {isModalOpen && (
         <Modal

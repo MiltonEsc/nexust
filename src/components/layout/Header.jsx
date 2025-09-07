@@ -30,7 +30,7 @@ function Header() {
         <div className="flex justify-between items-center py-3">
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold text-gray-900 flex-shrink-0">
-              Gestión de Activos TIC
+              Netsuit IT
             </h1>
             {activeCompany && (
               <select

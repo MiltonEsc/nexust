@@ -32,129 +32,68 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
   );
 
   // Inicializar cámara
-  const initCamera = async (deviceIdOverride = null) => {
+  // Reemplaza tu función initCamera con esta
+const initCamera = async () => {
+  try {
+    setError(null);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setHasPermission(false);
+      setError("Tu navegador no soporta el acceso a la cámara o el sitio no es seguro (requiere HTTPS).");
+      return;
+    }
+
+    let mediaStream;
+    // Intento 1: Cámara trasera (ideal para móviles)
     try {
-      setError(null);
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+    } catch (e1) {
+      console.warn("No se pudo obtener la cámara trasera, intentando con cualquier cámara.", e1);
+      // Intento 2: Cualquier cámara disponible (fallback para desktops o si la trasera falla)
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      } catch (e2) {
+        console.error("Fallo definitivo al obtener acceso a la cámara.", e2);
+        setError("No se pudo acceder a ninguna cámara. Revisa los permisos del navegador para este sitio.");
         setHasPermission(false);
-        setError(
-          "Este navegador no soporta acceso a cámara o el contexto no es seguro (requiere HTTPS o localhost)."
-        );
         return;
       }
-
-      let mediaStream;
-      try {
-        // Paso 1: si hay deviceId indicado, úsalo directo
-        if (deviceIdOverride) {
-          mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: { deviceId: { exact: deviceIdOverride } },
-            audio: false,
-          });
-        } else {
-          // Abrir rápido con preferencia por environment (especialmente móvil)
-          mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: isMobile
-              ? { facingMode: { ideal: "environment" } }
-              : true,
-            audio: false,
-          });
-
-          // En segundo plano: si estamos en móvil, intentar cambiar a la cámara trasera precisa por deviceId
-          if (isMobile) {
-            try {
-              const devices = await navigator.mediaDevices.enumerateDevices();
-              const videoInputs = devices.filter((d) => d.kind === "videoinput");
-              const backCam = videoInputs.find((d) => /back|rear|environment/i.test(d.label));
-              if (backCam && videoRef.current) {
-                // Preparar nuevo stream antes de cerrar el actual para no cortar la previsualización
-                const rearStream = await navigator.mediaDevices.getUserMedia({
-                  video: { deviceId: { exact: backCam.deviceId } },
-                  audio: false,
-                });
-                // Cambiar a la trasera y cerrar el anterior
-                if (videoRef.current.srcObject) {
-                  const old = videoRef.current.srcObject;
-                  videoRef.current.srcObject = rearStream;
-                  old.getTracks && old.getTracks().forEach((t) => t.stop());
-                }
-                mediaStream = rearStream;
-              }
-            } catch (_e) {
-              // Si no se puede enumerar o cambiar, nos quedamos con el stream actual
-            }
-          }
-        }
-      } catch (primaryErr) {
-        try {
-          // Fallback a cámara frontal
-          mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: "user" } },
-            audio: false,
-          });
-        } catch (secondaryErr) {
-          // Fallback genérico
-          mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        }
-      }
-
-      setStream(mediaStream);
-      setHasPermission(true);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        videoRef.current.setAttribute("playsinline", "true");
-        const playVideo = async () => {
-          try {
-            await videoRef.current.play();
-            setHasPermission(true);
-          } catch (e) {
-            // Algunos navegadores requieren interacción del usuario antes de play
-            setHasPermission(true); // Permisos concedidos aunque play espere interacción
-          }
-        };
-        if (videoRef.current.readyState >= 2) {
-          await playVideo();
-        } else {
-          videoRef.current.onloadedmetadata = playVideo;
-          videoRef.current.oncanplay = () => {
-            if (videoRef.current && videoRef.current.paused) {
-              playVideo();
-            }
-          };
-        }
-
-        // Diagnóstico: actualizar medidas periódicamente
-        const updateDebug = () => {
-          const track = mediaStream.getVideoTracks?.()[0];
-          setVideoDebug({
-            width: videoRef.current?.videoWidth || 0,
-            height: videoRef.current?.videoHeight || 0,
-            readyState: videoRef.current?.readyState || 0,
-            trackState: track ? `${track.readyState}` : "",
-          });
-        };
-        updateDebug();
-        setTimeout(updateDebug, 1000);
-        setTimeout(updateDebug, 3000);
-        setTimeout(() => {
-          updateDebug();
-          // Si pasado 5s no hay dimensiones, mostrar ayuda
-          if (
-            (videoRef.current && (!videoRef.current.videoWidth || !videoRef.current.videoHeight)) ||
-            !mediaStream.getVideoTracks?.()[0]
-          ) {
-            setError(
-              "No se pudo iniciar la vista previa de la cámara. Cambia de cámara o revisa permisos del sitio."
-            );
-          }
-        }, 5000);
-      }
-    } catch (err) {
-      console.error("Error al acceder a la cámara:", err);
-      setError("No se pudo acceder a la cámara. Verifica los permisos.");
-      setHasPermission(false);
     }
-  };
+
+    setStream(mediaStream);
+    setHasPermission(true);
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = mediaStream;
+      videoRef.current.setAttribute("playsinline", "true"); // Esencial para iOS
+
+      // Esperar a que el video se pueda reproducir
+      videoRef.current.onloadedmetadata = async () => {
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          console.error("Error al intentar reproducir el video:", playErr);
+          // Este error es común si el usuario no ha interactuado con la página.
+          // El permiso ya está concedido, solo falta la acción de 'play'.
+        }
+      };
+    }
+  } catch (err) {
+    // Captura de errores generales, como denegación de permisos
+    console.error("Error general al inicializar la cámara:", err);
+    if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        setError("Has denegado el permiso para acceder a la cámara.");
+    } else {
+        setError("Ocurrió un error inesperado al acceder a la cámara.");
+    }
+    setHasPermission(false);
+  }
+};
 
   // Detener cámara
   const stopCamera = () => {

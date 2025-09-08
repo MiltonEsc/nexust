@@ -4,6 +4,6 @@
   status = 200
 
 [[headers]]
-  for = "/*"
+  for = "/*" # Aplica este encabezado a todas las páginas de tu sitio
   [headers.values]
-    Permissions-Policy = "camera=(self)"
+    Permissions-Policy = "camera=*"

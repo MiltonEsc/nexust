@@ -41,14 +41,38 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
 
       let mediaStream;
       try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
-        });
+        // Paso 1: pedir permiso mínimo para poder leer labels
+        const temp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        try {
+          // Enumerar dispositivos y buscar cámara trasera
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoInputs = devices.filter((d) => d.kind === "videoinput");
+          const backCam =
+            videoInputs.find((d) => /back|rear|environment/i.test(d.label)) ||
+            videoInputs[videoInputs.length - 1];
+
+          // Cerrar stream temporal
+          temp.getTracks().forEach((t) => t.stop());
+
+          if (backCam) {
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+              video: { deviceId: { exact: backCam.deviceId } },
+              audio: false,
+            });
+          } else {
+            // Si no hay labels o solo una cámara, usar environment ideal
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: { ideal: "environment" } },
+              audio: false,
+            });
+          }
+        } catch (enumErr) {
+          // Si enumerar falla, usar environment ideal
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "environment" } },
+            audio: false,
+          });
+        }
       } catch (primaryErr) {
         try {
           // Fallback a cámara frontal

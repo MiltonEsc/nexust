@@ -30,6 +30,8 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
   const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(
     typeof navigator !== "undefined" ? navigator.userAgent : ""
   );
+  const initAttemptsRef = useRef(0);
+  const retryTimeoutRef = useRef(null);
 
   // Inicializar cámara
   // Reemplaza tu función initCamera con esta
@@ -136,6 +138,11 @@ const initCamera = async () => {
           if (videoRef.current.readyState >= 2) {
             await videoRef.current.play();
             console.log("Video iniciado correctamente");
+            initAttemptsRef.current = 0; // reset de reintentos al iniciar
+            if (retryTimeoutRef.current) {
+              clearTimeout(retryTimeoutRef.current);
+              retryTimeoutRef.current = null;
+            }
           }
         } catch (playErr) {
           console.error("Error al intentar reproducir el video:", playErr);
@@ -153,6 +160,19 @@ const initCamera = async () => {
         }
       };
     }
+
+    // Auto-reintento discreto si no hay imagen luego de 1.5s
+    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    retryTimeoutRef.current = setTimeout(async () => {
+      const noVideo =
+        !videoRef.current ||
+        !videoRef.current.videoWidth ||
+        !videoRef.current.videoHeight;
+      if (noVideo && initAttemptsRef.current < 3) {
+        initAttemptsRef.current += 1;
+        await initCamera();
+      }
+    }, 1500);
   } catch (err) {
     console.error("Error general al inicializar la cámara:", err);
     

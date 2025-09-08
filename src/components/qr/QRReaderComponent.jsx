@@ -26,9 +26,10 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
   const [stream, setStream] = useState(null);
   const scanIntervalRef = useRef(null);
   const { activeCompany } = useAppContext();
-  const [videoDevices, setVideoDevices] = useState([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [videoDebug, setVideoDebug] = useState({ width: 0, height: 0, readyState: 0, trackState: "" });
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(
+    typeof navigator !== "undefined" ? navigator.userAgent : ""
+  );
 
   // Inicializar cámara
   const initCamera = async (deviceIdOverride = null) => {
@@ -44,43 +45,44 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
 
       let mediaStream;
       try {
-        // Paso 1: si tenemos deviceId seleccionado, úsalo directo
+        // Paso 1: si hay deviceId indicado, úsalo directo
         if (deviceIdOverride) {
           mediaStream = await navigator.mediaDevices.getUserMedia({
             video: { deviceId: { exact: deviceIdOverride } },
             audio: false,
           });
         } else {
-          // Pedir permiso mínimo para leer labels y enumerar cámaras
-          const temp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const videoInputs = devices.filter((d) => d.kind === "videoinput");
-            setVideoDevices(videoInputs);
-            const backCam =
-              videoInputs.find((d) => /back|rear|environment/i.test(d.label)) ||
-              videoInputs[videoInputs.length - 1];
+          // Abrir rápido con preferencia por environment (especialmente móvil)
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: isMobile
+              ? { facingMode: { ideal: "environment" } }
+              : true,
+            audio: false,
+          });
 
-            // Cerrar stream temporal
-            temp.getTracks().forEach((t) => t.stop());
-
-            if (backCam) {
-              mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: { deviceId: { exact: backCam.deviceId } },
-                audio: false,
-              });
-              setSelectedDeviceId(backCam.deviceId);
-            } else {
-              mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: "environment" } },
-                audio: false,
-              });
+          // En segundo plano: si estamos en móvil, intentar cambiar a la cámara trasera precisa por deviceId
+          if (isMobile) {
+            try {
+              const devices = await navigator.mediaDevices.enumerateDevices();
+              const videoInputs = devices.filter((d) => d.kind === "videoinput");
+              const backCam = videoInputs.find((d) => /back|rear|environment/i.test(d.label));
+              if (backCam && videoRef.current) {
+                // Preparar nuevo stream antes de cerrar el actual para no cortar la previsualización
+                const rearStream = await navigator.mediaDevices.getUserMedia({
+                  video: { deviceId: { exact: backCam.deviceId } },
+                  audio: false,
+                });
+                // Cambiar a la trasera y cerrar el anterior
+                if (videoRef.current.srcObject) {
+                  const old = videoRef.current.srcObject;
+                  videoRef.current.srcObject = rearStream;
+                  old.getTracks && old.getTracks().forEach((t) => t.stop());
+                }
+                mediaStream = rearStream;
+              }
+            } catch (_e) {
+              // Si no se puede enumerar o cambiar, nos quedamos con el stream actual
             }
-          } catch (enumErr) {
-            mediaStream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: { ideal: "environment" } },
-              audio: false,
-            });
           }
         }
       } catch (primaryErr) {
@@ -342,28 +344,7 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
               </p>
             </div>
           </div>
-          {videoDevices.length > 1 && (
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Cámara:</label>
-              <select
-                className="border border-gray-300 rounded-lg text-sm px-2 py-1"
-                value={selectedDeviceId || ""}
-                onChange={async (e) => {
-                  const deviceId = e.target.value;
-                  setSelectedDeviceId(deviceId);
-                  // Detener stream actual y reabrir con la cámara seleccionada
-                  if (stream) stream.getTracks().forEach((t) => t.stop());
-                  await initCamera(deviceId);
-                }}
-              >
-                {videoDevices.map((d) => (
-                  <option key={d.deviceId} value={d.deviceId}>
-                    {d.label || `Cámara ${d.deviceId.slice(0, 4)}...`}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          {/* Selector de cámara removido para UX automática */}
           <button
             onClick={() => {
               stopCamera();
@@ -536,14 +517,7 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
                 Escanear Otro
               </button>
             )}
-            {!isScanning && hasPermission && (
-              <button
-                onClick={() => initCamera(selectedDeviceId)}
-                className="flex-1 bg-gray-100 text-gray-700 px-6 py-3 rounded-xl hover:bg-gray-200 transition-colors font-medium"
-              >
-                Reintentar Cámara
-              </button>
-            )}
+            {/* Botón de reintento removido para iniciar automáticamente */}
           </div>
         </div>
       </div>

@@ -26,9 +26,12 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
   const [stream, setStream] = useState(null);
   const scanIntervalRef = useRef(null);
   const { activeCompany } = useAppContext();
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState(null);
+  const [videoDebug, setVideoDebug] = useState({ width: 0, height: 0, readyState: 0, trackState: "" });
 
   // Inicializar cámara
-  const initCamera = async () => {
+  const initCamera = async (deviceIdOverride = null) => {
     try {
       setError(null);
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -41,37 +44,44 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
 
       let mediaStream;
       try {
-        // Paso 1: pedir permiso mínimo para poder leer labels
-        const temp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        try {
-          // Enumerar dispositivos y buscar cámara trasera
-          const devices = await navigator.mediaDevices.enumerateDevices();
-          const videoInputs = devices.filter((d) => d.kind === "videoinput");
-          const backCam =
-            videoInputs.find((d) => /back|rear|environment/i.test(d.label)) ||
-            videoInputs[videoInputs.length - 1];
+        // Paso 1: si tenemos deviceId seleccionado, úsalo directo
+        if (deviceIdOverride) {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: { exact: deviceIdOverride } },
+            audio: false,
+          });
+        } else {
+          // Pedir permiso mínimo para leer labels y enumerar cámaras
+          const temp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoInputs = devices.filter((d) => d.kind === "videoinput");
+            setVideoDevices(videoInputs);
+            const backCam =
+              videoInputs.find((d) => /back|rear|environment/i.test(d.label)) ||
+              videoInputs[videoInputs.length - 1];
 
-          // Cerrar stream temporal
-          temp.getTracks().forEach((t) => t.stop());
+            // Cerrar stream temporal
+            temp.getTracks().forEach((t) => t.stop());
 
-          if (backCam) {
-            mediaStream = await navigator.mediaDevices.getUserMedia({
-              video: { deviceId: { exact: backCam.deviceId } },
-              audio: false,
-            });
-          } else {
-            // Si no hay labels o solo una cámara, usar environment ideal
+            if (backCam) {
+              mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: { deviceId: { exact: backCam.deviceId } },
+                audio: false,
+              });
+              setSelectedDeviceId(backCam.deviceId);
+            } else {
+              mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: "environment" } },
+                audio: false,
+              });
+            }
+          } catch (enumErr) {
             mediaStream = await navigator.mediaDevices.getUserMedia({
               video: { facingMode: { ideal: "environment" } },
               audio: false,
             });
           }
-        } catch (enumErr) {
-          // Si enumerar falla, usar environment ideal
-          mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: "environment" } },
-            audio: false,
-          });
         }
       } catch (primaryErr) {
         try {
@@ -110,6 +120,32 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
             }
           };
         }
+
+        // Diagnóstico: actualizar medidas periódicamente
+        const updateDebug = () => {
+          const track = mediaStream.getVideoTracks?.()[0];
+          setVideoDebug({
+            width: videoRef.current?.videoWidth || 0,
+            height: videoRef.current?.videoHeight || 0,
+            readyState: videoRef.current?.readyState || 0,
+            trackState: track ? `${track.readyState}` : "",
+          });
+        };
+        updateDebug();
+        setTimeout(updateDebug, 1000);
+        setTimeout(updateDebug, 3000);
+        setTimeout(() => {
+          updateDebug();
+          // Si pasado 5s no hay dimensiones, mostrar ayuda
+          if (
+            (videoRef.current && (!videoRef.current.videoWidth || !videoRef.current.videoHeight)) ||
+            !mediaStream.getVideoTracks?.()[0]
+          ) {
+            setError(
+              "No se pudo iniciar la vista previa de la cámara. Cambia de cámara o revisa permisos del sitio."
+            );
+          }
+        }, 5000);
       }
     } catch (err) {
       console.error("Error al acceder a la cámara:", err);
@@ -306,6 +342,28 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
               </p>
             </div>
           </div>
+          {videoDevices.length > 1 && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600">Cámara:</label>
+              <select
+                className="border border-gray-300 rounded-lg text-sm px-2 py-1"
+                value={selectedDeviceId || ""}
+                onChange={async (e) => {
+                  const deviceId = e.target.value;
+                  setSelectedDeviceId(deviceId);
+                  // Detener stream actual y reabrir con la cámara seleccionada
+                  if (stream) stream.getTracks().forEach((t) => t.stop());
+                  await initCamera(deviceId);
+                }}
+              >
+                {videoDevices.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {d.label || `Cámara ${d.deviceId.slice(0, 4)}...`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <button
             onClick={() => {
               stopCamera();
@@ -367,6 +425,10 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
                         <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent animate-pulse"></div>
                       )}
                     </div>
+                  </div>
+                  {/* Diagnóstico compacto */}
+                  <div className="absolute bottom-2 left-2 bg-black/40 text-white text-[10px] px-2 py-1 rounded">
+                    {videoDebug.width}x{videoDebug.height} rs:{videoDebug.readyState} ts:{videoDebug.trackState}
                   </div>
                 </>
               )}
@@ -472,6 +534,14 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
                 className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition-colors font-medium"
               >
                 Escanear Otro
+              </button>
+            )}
+            {!isScanning && hasPermission && (
+              <button
+                onClick={() => initCamera(selectedDeviceId)}
+                className="flex-1 bg-gray-100 text-gray-700 px-6 py-3 rounded-xl hover:bg-gray-200 transition-colors font-medium"
+              >
+                Reintentar Cámara
               </button>
             )}
           </div>

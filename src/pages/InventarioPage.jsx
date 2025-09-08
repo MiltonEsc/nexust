@@ -11,6 +11,8 @@ import ConsumibleForm from "../components/forms/ConsumibleForm"; // Importar el 
 import AssetDetailModal from "../components/modals/AssetDetailModal";
 import ImportCSVModal from "../components/modals/ImportCSVModal";
 import Pagination from "../components/common/Pagination";
+import QRScanButton from "../components/qr/QRScanButton";
+import QRGeneratorModal from "../components/modals/QRGeneratorModal";
 import {
   MagnifyingGlassIcon,
   PlusIcon,
@@ -50,6 +52,8 @@ function InventarioPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   const [viewMode, setViewMode] = useState("table");
+  const [scannedAsset, setScannedAsset] = useState(null);
+  const [isQRGeneratorOpen, setIsQRGeneratorOpen] = useState(false);
 
   const fetchData = async (tab, search, page, isRefresh = false) => {
     if (!activeCompany) {
@@ -155,6 +159,20 @@ function InventarioPage() {
       itemWithMaintenance.maintenance_logs = maintenanceLogs;
     }
     setViewingItem(itemWithMaintenance);
+  };
+
+  const handleAssetFoundFromQR = async (asset) => {
+    try {
+      let itemWithMaintenance = { ...asset };
+      if (asset.tipo_activo === "equipos") {
+        const maintenanceLogs = await fetchMaintenanceForEquipo(asset.id);
+        itemWithMaintenance.maintenance_logs = maintenanceLogs;
+      }
+      setViewingItem(itemWithMaintenance);
+    } catch (e) {
+      // fallback simple
+      setViewingItem(asset);
+    }
   };
 
   const handleCloseModal = () => setIsModalOpen(false);
@@ -618,6 +636,16 @@ function InventarioPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+              <QRScanButton
+                className="w-full sm:w-auto"
+                onAssetFound={handleAssetFoundFromQR}
+              />
+              <button
+                onClick={() => setIsQRGeneratorOpen(true)}
+                className="btn-secondary inline-flex items-center justify-center gap-2"
+              >
+                Generar QR
+              </button>
               <button
                 onClick={handleRefresh}
                 disabled={refreshing}
@@ -802,6 +830,13 @@ function InventarioPage() {
           fetchData(activeTab, searchTerm, 1);
           setCurrentPage(1);
         }}
+        activeTab={activeTab}
+      />
+
+      <QRGeneratorModal
+        isOpen={isQRGeneratorOpen}
+        onClose={() => setIsQRGeneratorOpen(false)}
+        assets={items}
         activeTab={activeTab}
       />
     </div>

@@ -8,6 +8,7 @@ import UserCard from "../components/UserCard";
 import UserDetailModal from "../components/modals/UserDetailModal";
 import Pagination from "../components/common/Pagination";
 import ImportCSVModal from "../components/modals/ImportCSVModal";
+import QRScanButton from "../components/qr/QRScanButton";
 import {
   MagnifyingGlassIcon,
   PlusIcon,
@@ -33,6 +34,7 @@ function HojasDeVidaPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [scannedAsset, setScannedAsset] = useState(null);
 
   const fetchRegistros = async (page, search, isRefresh = false) => {
     if (!activeCompany) {
@@ -105,6 +107,13 @@ function HojasDeVidaPage() {
   const handleRefresh = () => fetchRegistros(currentPage, searchTerm, true);
 
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+
+  const handleAssetFoundFromQR = (asset) => {
+    // Si el QR corresponde a un equipo, podríamos filtrar y resaltar al usuario asignado
+    if (asset.tipo_activo === "equipos" && asset.registros?.nombre) {
+      setSearchTerm(asset.registros.nombre);
+    }
+  };
 
   // Loading skeleton component
   const LoadingSkeleton = () => (
@@ -208,6 +217,10 @@ function HojasDeVidaPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+              <QRScanButton
+                className="w-full sm:w-auto"
+                onAssetFound={handleAssetFoundFromQR}
+              />
               <button
                 onClick={handleRefresh}
                 disabled={refreshing}

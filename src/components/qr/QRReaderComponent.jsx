@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import jsQR from "jsqr";
 import {
   QrCodeIcon,
   XMarkIcon,
@@ -11,44 +12,8 @@ import {
   CubeIcon,
 } from "@heroicons/react/24/outline";
 
-// Simulación de la función supabase para el ejemplo
-const mockSupabaseQuery = async (table, assetId) => {
-  // Simular delay de red
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-
-  // Datos de prueba
-  const mockData = {
-    equipos: {
-      id: assetId,
-      marca: "Dell",
-      modelo: "OptiPlex 7090",
-      numero_serie: "DL7090-001",
-      estado: "Activo",
-      ubicacion: "Oficina Principal",
-      fecha_compra: "2024-01-15",
-      registros: { nombre: "Juan Pérez" },
-      proveedores: { nombre: "TechSupply Corp" },
-    },
-    software: {
-      id: assetId,
-      nombre: "Microsoft Office 365",
-      version: "2024",
-      tipo: "Productividad",
-      stock: 50,
-      fecha_vencimiento: "2025-12-31",
-    },
-    perifericos: {
-      id: assetId,
-      tipo: "Monitor",
-      marca: "Samsung",
-      modelo: '27" 4K',
-      numero_serie: "SM27-4K-001",
-      estado: "Activo",
-    },
-  };
-
-  return mockData[table] || null;
-};
+import { supabase } from "../../supabaseClient";
+import { useAppContext } from "../../context/AppContext";
 
 const QRReaderComponent = ({ onAssetFound, onClose }) => {
   const videoRef = useRef(null);
@@ -60,11 +25,20 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
   const [foundAsset, setFoundAsset] = useState(null);
   const [stream, setStream] = useState(null);
   const scanIntervalRef = useRef(null);
+  const { activeCompany } = useAppContext();
 
   // Inicializar cámara
   const initCamera = async () => {
     try {
       setError(null);
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setHasPermission(false);
+        setError(
+          "Este navegador no soporta acceso a cámara o el contexto no es seguro (requiere HTTPS o localhost)."
+        );
+        return;
+      }
+
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "environment", // Usar cámara trasera en móviles
@@ -76,8 +50,21 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
       setStream(mediaStream);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        await videoRef.current.play();
-        setHasPermission(true);
+        videoRef.current.setAttribute("playsinline", "true");
+        const playVideo = async () => {
+          try {
+            await videoRef.current.play();
+            setHasPermission(true);
+          } catch (e) {
+            // Algunos navegadores requieren interacción del usuario antes de play
+            setHasPermission(true); // Permisos concedidos aunque play espere interacción
+          }
+        };
+        if (videoRef.current.readyState >= 2) {
+          await playVideo();
+        } else {
+          videoRef.current.onloadedmetadata = playVideo;
+        }
       }
     } catch (err) {
       console.error("Error al acceder a la cámara:", err);
@@ -99,7 +86,7 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
     setIsScanning(false);
   };
 
-  // Función simplificada para detectar QR (simulación)
+  // Escanear y decodificar QR usando jsQR
   const scanForQR = async () => {
     if (!videoRef.current || !canvasRef.current) return;
 
@@ -107,21 +94,19 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
 
-    // Configurar canvas
+    if (!video.videoWidth || !video.videoHeight) return;
+
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Dibujar frame actual
-    ctx.drawImage(video, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+      inversionAttempts: "dontInvert",
+    });
 
-    // Simulación de detección de QR
-    // En una implementación real usarías una librería como jsQR
-    const simulateQRDetection = Math.random() < 0.1; // 10% de probabilidad por scan
-
-    if (simulateQRDetection) {
-      // Simular QR detectado con formato: TIPO:ID (ej: "EQUIPO:123", "SOFTWARE:456")
-      const qrData = `EQUIPO:${Math.floor(Math.random() * 100) + 1}`;
-      await handleQRDetected(qrData);
+    if (code && code.data) {
+      await handleQRDetected(code.data);
     }
   };
 
@@ -150,8 +135,19 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
         throw new Error("Tipo de activo no válido");
       }
 
-      // Buscar activo en la base de datos (usando función mock)
-      const asset = await mockSupabaseQuery(tableName, assetId);
+      // Buscar activo en la base de datos real
+      const query = supabase
+        .from(tableName)
+        .select("*")
+        .eq("id", assetId)
+        .eq("company_id", activeCompany?.id)
+        .maybeSingle();
+
+      const { data: asset, error: dbError } = await query;
+
+      if (dbError) {
+        throw new Error(dbError.message);
+      }
 
       if (!asset) {
         throw new Error("Activo no encontrado");
@@ -178,17 +174,31 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
   };
 
   // Iniciar escaneo
-  const startScanning = () => {
+  const startScanning = async () => {
     if (!hasPermission) {
-      initCamera();
-      return;
+      await initCamera();
     }
 
     setIsScanning(true);
     setError(null);
     setFoundAsset(null);
 
+    // Esperar a que el video tenga dimensiones válidas
+    const waitForVideo = async () => {
+      const start = Date.now();
+      while (
+        videoRef.current &&
+        (!videoRef.current.videoWidth || !videoRef.current.videoHeight)
+      ) {
+        if (Date.now() - start > 3000) break; // timeout 3s
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    };
+
+    await waitForVideo();
+
     // Escanear cada 500ms
+    if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
     scanIntervalRef.current = setInterval(scanForQR, 500);
   };
 
@@ -197,6 +207,11 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
     return () => {
       stopCamera();
     };
+  }, []);
+
+  // Solicitar permisos e inicializar cámara al montar el componente
+  useEffect(() => {
+    initCamera();
   }, []);
 
   // Reiniciar escaneo

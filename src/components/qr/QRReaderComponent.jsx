@@ -33,35 +33,90 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
 
   // Inicializar cámara
   // Reemplaza tu función initCamera con esta
+// Función mejorada para inicializar cámara con mejor manejo de errores
 const initCamera = async () => {
   try {
     setError(null);
+    
+    // Verificar si estamos en un contexto seguro
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+      setError("La cámara requiere una conexión segura (HTTPS). Verifica que el sitio use HTTPS.");
+      setHasPermission(false);
+      return;
+    }
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setHasPermission(false);
       setError("Tu navegador no soporta el acceso a la cámara o el sitio no es seguro (requiere HTTPS).");
       return;
     }
 
-    let mediaStream;
-    // Intento 1: Cámara trasera (ideal para móviles)
+    // Verificar permisos primero
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-        audio: false,
-      });
+      const permission = await navigator.permissions.query({ name: 'camera' });
+      console.log('Estado del permiso de cámara:', permission.state);
+      
+      if (permission.state === 'denied') {
+        setError("Los permisos de cámara están bloqueados. Ve a la configuración del navegador para habilitarlos.");
+        setHasPermission(false);
+        return;
+      }
+    } catch (permErr) {
+      console.warn('No se pudo verificar permisos:', permErr);
+      // Continuar con el intento de acceso
+    }
+
+    let mediaStream;
+    
+    // Configuración más robusta para diferentes dispositivos
+    const constraints = {
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1280, min: 640 },
+        height: { ideal: 720, min: 480 }
+      },
+      audio: false,
+    };
+
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch (e1) {
       console.warn("No se pudo obtener la cámara trasera, intentando con cualquier cámara.", e1);
-      // Intento 2: Cualquier cámara disponible (fallback para desktops o si la trasera falla)
+      
       try {
+        // Fallback sin especificar facingMode
         mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
+          video: {
+            width: { ideal: 1280, min: 640 },
+            height: { ideal: 720, min: 480 }
+          },
           audio: false,
         });
       } catch (e2) {
-        console.error("Fallo definitivo al obtener acceso a la cámara.", e2);
-        setError("No se pudo acceder a ninguna cámara. Revisa los permisos del navegador para este sitio.");
-        setHasPermission(false);
-        return;
+        console.warn("Fallback con configuración mínima", e2);
+        
+        try {
+          // Último intento con configuración básica
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        } catch (e3) {
+          console.error("Fallo definitivo al obtener acceso a la cámara.", e3);
+          
+          let errorMessage = "No se pudo acceder a ninguna cámara.";
+          if (e3.name === "NotAllowedError") {
+            errorMessage = "Has denegado el permiso para acceder a la cámara. Recarga la página y permite el acceso.";
+          } else if (e3.name === "NotFoundError") {
+            errorMessage = "No se encontró ninguna cámara en tu dispositivo.";
+          } else if (e3.name === "NotReadableError") {
+            errorMessage = "La cámara está siendo usada por otra aplicación.";
+          }
+          
+          setError(errorMessage);
+          setHasPermission(false);
+          return;
+        }
       }
     }
 
@@ -70,31 +125,60 @@ const initCamera = async () => {
 
     if (videoRef.current) {
       videoRef.current.srcObject = mediaStream;
-      videoRef.current.setAttribute("playsinline", "true"); // Esencial para iOS
+      videoRef.current.setAttribute("playsinline", "true");
+      videoRef.current.setAttribute("webkit-playsinline", "true"); // Para iOS Safari
+      videoRef.current.muted = true;
 
-      // Esperar a que el video se pueda reproducir
-      videoRef.current.onloadedmetadata = async () => {
+      // Manejar la carga del video
+      const handleLoadedMetadata = async () => {
         try {
-          await videoRef.current.play();
+          // Asegurar que el video esté listo para reproducir
+          if (videoRef.current.readyState >= 2) {
+            await videoRef.current.play();
+            console.log("Video iniciado correctamente");
+          }
         } catch (playErr) {
           console.error("Error al intentar reproducir el video:", playErr);
-          // Este error es común si el usuario no ha interactuado con la página.
-          // El permiso ya está concedido, solo falta la acción de 'play'.
+          // En algunos casos necesitamos interacción del usuario
+          setError("Haz clic en 'Iniciar Escaneo' para activar la cámara.");
+        }
+      };
+
+      videoRef.current.addEventListener("loadedmetadata", handleLoadedMetadata);
+      
+      // Cleanup del event listener
+      return () => {
+        if (videoRef.current) {
+          videoRef.current.removeEventListener("loadedmetadata", handleLoadedMetadata);
         }
       };
     }
   } catch (err) {
-    // Captura de errores generales, como denegación de permisos
     console.error("Error general al inicializar la cámara:", err);
+    
+    let errorMessage = "Ocurrió un error inesperado al acceder a la cámara.";
     if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        setError("Has denegado el permiso para acceder a la cámara.");
-    } else {
-        setError("Ocurrió un error inesperado al acceder a la cámara.");
+      errorMessage = "Has denegado el permiso para acceder a la cámara. Recarga la página y permite el acceso.";
+    } else if (err.name === "NotSupportedError") {
+      errorMessage = "Tu navegador no soporta esta función o necesitas HTTPS.";
     }
+    
+    setError(errorMessage);
     setHasPermission(false);
   }
 };
 
+// Función para forzar el inicio del video si es necesario
+const forceVideoPlay = async () => {
+  if (videoRef.current && videoRef.current.paused) {
+    try {
+      await videoRef.current.play();
+      console.log("Video forzado a iniciar");
+    } catch (e) {
+      console.error("No se pudo forzar el inicio del video:", e);
+    }
+  }
+};
   // Detener cámara
   const stopCamera = () => {
     if (stream) {

@@ -1,9 +1,17 @@
+[build]
+  publish = "build"
+  command = "npm run build"
+  
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
 [[headers]]
-  for = "/*" # Aplica este encabezado a todas las páginas de tu sitio
+  for = "/*"
   [headers.values]
-    Permissions-Policy = "camera=*"
+    Permissions-Policy = "camera=*, microphone=*, geolocation=*"
+    Feature-Policy = "camera 'self'; microphone 'self'"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

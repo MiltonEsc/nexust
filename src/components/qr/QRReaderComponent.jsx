@@ -39,15 +39,31 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
         return;
       }
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "environment", // Usar cámara trasera en móviles
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      });
+      let mediaStream;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch (primaryErr) {
+        try {
+          // Fallback a cámara frontal
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "user" } },
+            audio: false,
+          });
+        } catch (secondaryErr) {
+          // Fallback genérico
+          mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+      }
 
       setStream(mediaStream);
+      setHasPermission(true);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
         videoRef.current.setAttribute("playsinline", "true");
@@ -64,6 +80,11 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
           await playVideo();
         } else {
           videoRef.current.onloadedmetadata = playVideo;
+          videoRef.current.oncanplay = () => {
+            if (videoRef.current && videoRef.current.paused) {
+              playVideo();
+            }
+          };
         }
       }
     } catch (err) {
@@ -100,7 +121,14 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    // Manejar excepción si el canvas no puede leer por políticas de seguridad
+    let imageData;
+    try {
+      imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    } catch (e) {
+      // Si falla, reintentar en el próximo tick sin romper el loop
+      return;
+    }
     const code = jsQR(imageData.data, imageData.width, imageData.height, {
       inversionAttempts: "dontInvert",
     });
@@ -197,9 +225,9 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
 
     await waitForVideo();
 
-    // Escanear cada 500ms
+    // Escanear cada 300ms para mejorar respuesta
     if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
-    scanIntervalRef.current = setInterval(scanForQR, 500);
+    scanIntervalRef.current = setInterval(scanForQR, 300);
   };
 
   // Limpiar recursos al desmontar
@@ -296,6 +324,7 @@ const QRReaderComponent = ({ onAssetFound, onClose }) => {
                     ref={videoRef}
                     className="w-full h-full object-cover"
                     playsInline
+                    autoPlay
                     muted
                   />
                   <canvas ref={canvasRef} className="hidden" />

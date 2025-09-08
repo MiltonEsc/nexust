@@ -818,4 +818,41 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
+-- Maintenance schedules for preventive maintenance planning
+CREATE TABLE IF NOT EXISTS "public"."maintenance_schedules" (
+    "id" bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "company_id" uuid NOT NULL,
+    "equipo_id" bigint NULL,
+    "title" text NOT NULL,
+    "periodicity" text DEFAULT 'custom'::text NOT NULL, -- daily, weekly, monthly, quarterly, semiannual, annual, custom
+    "frequency_days" integer DEFAULT 0 NOT NULL,         -- used when periodicity = custom
+    "next_date" date NOT NULL,
+    "responsible" text,
+    "notes" text,
+    "active" boolean DEFAULT true NOT NULL,
+    "created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE "public"."maintenance_schedules" OWNER TO "postgres";
+
+ALTER TABLE ONLY "public"."maintenance_schedules"
+  ADD CONSTRAINT "maintenance_schedules_company_id_fkey"
+  FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE CASCADE;
+
+ALTER TABLE ONLY "public"."maintenance_schedules"
+  ADD CONSTRAINT "maintenance_schedules_equipo_id_fkey"
+  FOREIGN KEY ("equipo_id") REFERENCES "public"."equipos"("id") ON DELETE SET NULL;
+
+-- RLS
+ALTER TABLE "public"."maintenance_schedules" ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Miembros gestionan planes de mantenimiento de sus empresas" ON "public"."maintenance_schedules"
+  USING (("company_id" IN (SELECT "public"."get_my_companies"())))
+  WITH CHECK (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+-- Grants (align with other tables)
+GRANT ALL ON TABLE "public"."maintenance_schedules" TO "anon";
+GRANT ALL ON TABLE "public"."maintenance_schedules" TO "authenticated";
+GRANT ALL ON TABLE "public"."maintenance_schedules" TO "service_role";
+
 RESET ALL;

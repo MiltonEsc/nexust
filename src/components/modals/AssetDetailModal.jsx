@@ -35,8 +35,8 @@ const EvidenceDisplay = ({ url }) => {
   );
 };
 
-function AssetDetailModal({ asset, onClose }) {
-  if (!asset) return null;
+function AssetDetailModal({ isOpen, asset, onClose }) {
+  if (!isOpen || !asset) return null;
 
   const formatCurrency = (value) => {
     if (value === null || value === undefined) return "N/A";
@@ -54,7 +54,7 @@ function AssetDetailModal({ asset, onClose }) {
 
   return (
     <Modal
-      isOpen={!!asset}
+      isOpen={isOpen}
       onClose={onClose}
       title={title}
       maxWidth="max-w-6xl"

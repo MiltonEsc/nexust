@@ -15,6 +15,7 @@ import ProveedoresPage from "./pages/ProveedoresPage";
 import MantenimientoPage from "./pages/MantenimientoPage";
 import ReportesPage from "./pages/ReportesPage";
 import EmpresasPage from "./pages/EmpresasPage";
+import MapasPage from "./pages/MapasPage";
 
 // Componente interno para manejar las redirecciones y la lógica de rutas
 function AppRoutes() {
@@ -54,6 +55,7 @@ function AppRoutes() {
         />
         <Route path="proveedores" element={<ProveedoresPage />} />
         <Route path="mantenimiento" element={<MantenimientoPage />} />
+        <Route path="mapas" element={<MapasPage />} />
         <Route path="reportes" element={<ReportesPage />} />
         <Route path="empresas" element={<EmpresasPage />} />
       </Route>

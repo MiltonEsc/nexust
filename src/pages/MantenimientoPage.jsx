@@ -5,6 +5,7 @@ import { supabase } from "../supabaseClient";
 import { useAppContext } from "../context/AppContext";
 import Modal from "../components/common/Modal";
 import MantenimientoForm from "../components/forms/MantenimientoForm";
+import MantenimientoPlanForm from "../components/forms/MantenimientoPlanForm";
 import Pagination from "../components/common/Pagination";
 import {
   PencilIcon,
@@ -58,6 +59,11 @@ function MantenimientoPage() {
 
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
+  const [schedules, setSchedules] = useState([]);
+  const [loadingSchedules, setLoadingSchedules] = useState(true);
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState(null);
+  const [scheduleFilter, setScheduleFilter] = useState("all"); // all | overdue | next30
 
   const fetchMaintenanceData = async (page) => {
     if (!activeCompany) {
@@ -97,8 +103,151 @@ function MantenimientoPage() {
   useEffect(() => {
     if (activeCompany) {
       fetchMaintenanceData(currentPage);
+      fetchSchedules();
     }
   }, [currentPage, activeCompany]);
+  const fetchSchedules = async () => {
+    if (!activeCompany) return;
+    setLoadingSchedules(true);
+    try {
+      const { data, error } = await supabase
+        .from("maintenance_schedules")
+        .select("*, equipos(id, marca, modelo, numero_serie)")
+        .eq("company_id", activeCompany.id)
+        .order("next_date", { ascending: true });
+      if (error) throw error;
+      const today = new Date();
+      const in30 = new Date();
+      in30.setDate(in30.getDate() + 30);
+
+      let filtered = data || [];
+      if (scheduleFilter === "overdue") {
+        filtered = filtered.filter((s) => new Date(s.next_date) < today && s.active);
+      } else if (scheduleFilter === "next30") {
+        filtered = filtered.filter((s) => {
+          const d = new Date(s.next_date);
+          return d >= today && d <= in30 && s.active;
+        });
+      }
+      setSchedules(filtered);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingSchedules(false);
+    }
+  };
+
+  const openScheduleModal = (schedule = null) => {
+    setEditingSchedule(schedule);
+    setScheduleModalOpen(true);
+  };
+
+  const closeScheduleModal = () => {
+    setEditingSchedule(null);
+    setScheduleModalOpen(false);
+  };
+
+  const handleScheduleSuccess = () => {
+    closeScheduleModal();
+    fetchSchedules();
+  };
+
+  const toggleScheduleActive = async (schedule) => {
+    const { error } = await supabase
+      .from("maintenance_schedules")
+      .update({ active: !schedule.active })
+      .eq("id", schedule.id);
+    if (!error) fetchSchedules();
+  };
+
+  const scheduleToFrequencyText = (s) => {
+    const map = {
+      daily: "Diario",
+      weekly: "Semanal",
+      monthly: "Mensual",
+      quarterly: "Trimestral",
+      semiannual: "Semestral",
+      annual: "Anual",
+      custom: `${s.frequency_days} días`,
+    };
+    return map[s.periodicity] || "N/A";
+  };
+
+  const createLogFromSchedule = async (s) => {
+    try {
+      const { error } = await supabase.from("maintenance_logs").insert({
+        company_id: activeCompany.id,
+        equipo_id: s.equipo_id,
+        fecha: new Date().toISOString().slice(0, 10),
+        detalle: `OT generada desde plan: ${s.title}`,
+        tecnico: s.responsible || null,
+      });
+      if (error) throw error;
+
+      // Reprogramar próxima fecha
+      const next = new Date(s.next_date);
+      switch (s.periodicity) {
+        case "daily":
+          next.setDate(next.getDate() + 1);
+          break;
+        case "weekly":
+          next.setDate(next.getDate() + 7);
+          break;
+        case "monthly":
+          next.setMonth(next.getMonth() + 1);
+          break;
+        case "quarterly":
+          next.setMonth(next.getMonth() + 3);
+          break;
+        case "semiannual":
+          next.setMonth(next.getMonth() + 6);
+          break;
+        case "annual":
+          next.setFullYear(next.getFullYear() + 1);
+          break;
+        case "custom":
+        default:
+          next.setDate(next.getDate() + (s.frequency_days || 0));
+      }
+
+      await supabase
+        .from("maintenance_schedules")
+        .update({ next_date: next.toISOString().slice(0, 10) })
+        .eq("id", s.id);
+
+      fetchMaintenanceData(currentPage);
+      fetchSchedules();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  // Notificaciones in-app simples al cargar (overdue / next 7 días)
+  useEffect(() => {
+    const notifyUpcoming = async () => {
+      if (!activeCompany) return;
+      const { data } = await supabase
+        .from("maintenance_schedules")
+        .select("id, title, next_date, active")
+        .eq("company_id", activeCompany.id)
+        .eq("active", true);
+      const today = new Date();
+      const in7 = new Date();
+      in7.setDate(in7.getDate() + 7);
+      const overdue = (data || []).filter((s) => new Date(s.next_date) < today);
+      const soon = (data || []).filter((s) => {
+        const d = new Date(s.next_date);
+        return d >= today && d <= in7;
+      });
+      if (overdue.length > 0) {
+        console.warn(`Planes vencidos: ${overdue.length}`);
+      }
+      if (soon.length > 0) {
+        console.info(`Planes próximos (7 días): ${soon.length}`);
+      }
+    };
+    notifyUpcoming();
+  }, [activeCompany]);
 
   const handleOpenModal = (log = null) => {
     setEditingLog(log);
@@ -192,6 +341,87 @@ function MantenimientoPage() {
       </div>
 
       <div className="px-6 py-8">
+        {/* Planes de mantenimiento */}
+        <div className="mb-8">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-900">Planes de mantenimiento</h2>
+              <div className="flex items-center gap-2">
+                <div className="hidden sm:flex items-center gap-1 text-sm">
+                  <button
+                    onClick={() => { setScheduleFilter("all"); fetchSchedules(); }}
+                    className={`px-3 py-1.5 rounded-md ${scheduleFilter === "all" ? "bg-blue-600 text-white" : "border border-gray-300"}`}
+                  >
+                    Todos
+                  </button>
+                  <button
+                    onClick={() => { setScheduleFilter("overdue"); fetchSchedules(); }}
+                    className={`px-3 py-1.5 rounded-md ${scheduleFilter === "overdue" ? "bg-blue-600 text-white" : "border border-yellow-300 text-yellow-800"}`}
+                  >
+                    Vencidos
+                  </button>
+                  <button
+                    onClick={() => { setScheduleFilter("next30"); fetchSchedules(); }}
+                    className={`px-3 py-1.5 rounded-md ${scheduleFilter === "next30" ? "bg-blue-600 text-white" : "border border-green-300 text-green-800"}`}
+                  >
+                    Próx. 30 días
+                  </button>
+                </div>
+                <button onClick={() => openScheduleModal()} className="btn-primary inline-flex items-center gap-2">
+                  <PlusIcon className="w-5 h-5" /> Crear plan
+                </button>
+              </div>
+            </div>
+            {loadingSchedules ? (
+              <div className="p-6 text-gray-500">Cargando...</div>
+            ) : schedules.length === 0 ? (
+              <div className="p-6 text-gray-500">No hay planes de mantenimiento.</div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {schedules.map((s) => (
+                  <div key={s.id} className="p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+                        <ComputerDesktopIcon className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <div className="font-medium text-gray-900">{s.title}</div>
+                        <div className="text-sm text-gray-600">
+                          {s.equipos
+                            ? `${s.equipos.marca} ${s.equipos.modelo} • S/N: ${s.equipos.numero_serie}`
+                            : "Plan general"}
+                          {" • Próxima: "}
+                          {new Date(s.next_date).toLocaleDateString()} {" • Frecuencia: "}
+                          {scheduleToFrequencyText(s)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => createLogFromSchedule(s)}
+                        className="px-3 py-1.5 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+                      >
+                        Generar OT
+                      </button>
+                      <button
+                        onClick={() => openScheduleModal(s)}
+                        className="px-3 py-1.5 text-sm rounded-md border border-gray-300 hover:bg-gray-50"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => toggleScheduleActive(s)}
+                        className={`px-3 py-1.5 text-sm rounded-md ${s.active ? "bg-yellow-100 text-yellow-800" : "bg-green-100 text-green-800"}`}
+                      >
+                        {s.active ? "Desactivar" : "Activar"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           {loading ? (
             <div className="p-6">
@@ -319,6 +549,16 @@ function MantenimientoPage() {
           }
         >
           <MantenimientoForm onSuccess={handleSuccess} logToEdit={editingLog} />
+        </Modal>
+      )}
+
+      {scheduleModalOpen && (
+        <Modal
+          isOpen={scheduleModalOpen}
+          onClose={closeScheduleModal}
+          title={editingSchedule ? "Editar Plan de Mantenimiento" : "Crear Plan de Mantenimiento"}
+        >
+          <MantenimientoPlanForm planToEdit={editingSchedule} onSuccess={handleScheduleSuccess} />
         </Modal>
       )}
     </div>

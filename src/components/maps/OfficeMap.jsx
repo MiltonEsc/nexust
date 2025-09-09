@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { MapPinIcon, ComputerDesktopIcon, PrinterIcon, PhoneIcon, BuildingOfficeIcon } from '@heroicons/react/24/outline';
+import { generateUniqueAreaId } from '../../utils/idGenerator';
 
 const OfficeMap = ({ 
   equipos, 
@@ -834,7 +835,7 @@ const OfficeMap = ({
       
       if (width > 20 && height > 20) { // Mínimo tamaño para crear área
         const newArea = {
-          id: `area_${Date.now()}`,
+          id: generateUniqueAreaId(),
           name: 'Nueva Área',
           x: Math.min(areaCreation.startX, areaCreation.currentX),
           y: Math.min(areaCreation.startY, areaCreation.currentY),

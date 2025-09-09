@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { XMarkIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { generateUniqueAreaId } from '../../utils/idGenerator';
 
 const AreaConfigModal = ({ isOpen, onClose, areas, onSave }) => {
   const [localAreas, setLocalAreas] = useState(areas || []);
@@ -7,7 +8,7 @@ const AreaConfigModal = ({ isOpen, onClose, areas, onSave }) => {
 
   const handleAddArea = () => {
     const newArea = {
-      id: `area_${Date.now()}`,
+      id: generateUniqueAreaId(),
       name: 'Nueva Área',
       x: 100,
       y: 100,

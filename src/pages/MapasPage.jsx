@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { MapIcon, PlusIcon, EyeIcon, EyeSlashIcon, Cog6ToothIcon, DocumentDuplicateIcon } from '@heroicons/react/24/outline';
+import { MapIcon, PlusIcon, EyeIcon, EyeSlashIcon, Cog6ToothIcon, DocumentDuplicateIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../supabaseClient';
 import { useAppContext } from '../context/AppContext';
 import toast from 'react-hot-toast';
-import OfficeMapKonva from '../components/maps/OfficeMapKonva';
+import ReactFlowMap from '../components/maps/ReactFlowMap';
+import DrawIOSync from '../components/maps/DrawIOSync';
 import EquipoLocationModal from '../components/modals/EquipoLocationModal';
 import AssetDetailModal from '../components/modals/AssetDetailModal';
 import AreaConfigModal from '../components/modals/AreaConfigModal';
@@ -27,6 +28,16 @@ const MapasPage = () => {
   const [isDraggingFromCard, setIsDraggingFromCard] = useState(false);
   const [isCreatingArea, setIsCreatingArea] = useState(false);
   const [editingArea, setEditingArea] = useState(null);
+  // Solo React Flow ahora
+
+  // Hook de sincronización con draw.io
+  const drawIOSync = DrawIOSync({
+    equipos,
+    onEquiposChange: setEquipos,
+    areas: officeAreas,
+    onAreasChange: setOfficeAreas,
+    activeCompany
+  });
 
   // Cargar equipos
   const loadEquipos = async () => {
@@ -89,35 +100,63 @@ const MapasPage = () => {
   };
 
   // Manejar movimiento de equipo
-  const handleEquipoMove = async (equipo) => {
+  const handleEquipoMove = async (equipo, x, y, showToast = false) => {
     try {
       // Asegurar que las coordenadas sean enteros
-      const x = Math.round(equipo.x_coordinate);
-      const y = Math.round(equipo.y_coordinate);
+      const newX = Math.round(x || equipo.x_coordinate);
+      const newY = Math.round(y || equipo.y_coordinate);
+
+      console.log('Moviendo equipo:', {
+        id: equipo.id,
+        oldX: equipo.x_coordinate,
+        oldY: equipo.y_coordinate,
+        newX,
+        newY,
+        showToast
+      });
 
       // Actualizar el estado local primero para evitar parpadeo visual
+      const updatedEquipo = {
+        ...equipo,
+        x_coordinate: newX,
+        y_coordinate: newY
+      };
+
       setEquipos(prev => 
         prev.map(e => 
-          e.id === equipo.id 
-            ? { ...e, x_coordinate: x, y_coordinate: y }
-            : e
+          e.id === equipo.id ? updatedEquipo : e
         )
       );
 
-      // Luego actualizar en la base de datos
+      // Actualizar directamente en la base de datos
       const { error } = await supabase
         .from('equipos')
         .update({ 
-          x_coordinate: x, 
-          y_coordinate: y 
+          x_coordinate: newX, 
+          y_coordinate: newY 
         })
-        .eq('id', equipo.id);
+        .eq('id', equipo.id)
+        .eq('company_id', activeCompany.id);
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
+
+      // Solo mostrar toast si se solicita explícitamente
+      if (showToast) {
+        toast.success('Ubicación actualizada');
+      }
     } catch (error) {
       console.error('Error moving equipo:', error);
-      alert('Error al mover el equipo');
+      if (showToast) {
+        toast.error('Error al mover el equipo');
+      }
     }
+  };
+
+  // Manejar final del arrastre de equipo
+  const handleEquipoMoveEnd = async (equipo, x, y) => {
+    await handleEquipoMove(equipo, x, y, true); // Mostrar toast al final
   };
 
   // Manejar actualización de ubicación
@@ -400,6 +439,11 @@ const MapasPage = () => {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Mapas de Ubicación</h1>
             <p className="text-gray-600">Visualiza la ubicación física de tus equipos</p>
+            {drawIOSync.lastSync && (
+              <p className="text-xs text-gray-500">
+                Última sincronización: {drawIOSync.lastSync.toLocaleTimeString()}
+              </p>
+            )}
           </div>
         </div>
         
@@ -432,6 +476,15 @@ const MapasPage = () => {
           >
             <DocumentDuplicateIcon className="h-4 w-4" />
             Plantillas
+          </button>
+          
+          <button
+            onClick={() => drawIOSync.exportToDrawIO()}
+            className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-purple-100 text-purple-800 hover:bg-purple-200"
+            disabled={drawIOSync.isSyncing}
+          >
+            <ArrowPathIcon className={`h-4 w-4 ${drawIOSync.isSyncing ? 'animate-spin' : ''}`} />
+            {drawIOSync.isSyncing ? 'Sincronizando...' : 'Sincronizar'}
           </button>
           <button
             onClick={() => setShowAreaConfig(true)}
@@ -486,30 +539,20 @@ const MapasPage = () => {
         </div>
       </div>
 
-      {/* Mapa */}
-      <div 
-        className="bg-white rounded-lg shadow border"
-        style={{ height: '500px' }}
-        onDrop={handleMapDrop}
-        onDragOver={handleMapDragOver}
-      >
-        <OfficeMapKonva 
-          equipos={filteredEquipos}
-          onEquipoSelect={handleEquipoSelect}
-          selectedEquipo={selectedEquipo}
-          selectedArea={selectedArea}
-          onAreaSelect={handleAreaSelect}
-          onEquipoMove={handleEquipoMove}
-          onEquipoRemove={handleEquipoRemove}
-          newlyPlacedEquipo={newlyPlacedEquipo}
-          draggedEquipo={draggedEquipo}
-          isDraggingFromCard={isDraggingFromCard}
-          areas={officeAreas}
-          onAreasChange={handleAreasChange}
-          isCreatingArea={isCreatingArea}
-          onAreaCreated={handleAreaCreated}
-        />
-      </div>
+      {/* Mapa - Solo React Flow */}
+      <ReactFlowMap 
+        equipos={filteredEquipos}
+        onEquipoSelect={handleEquipoSelect}
+        selectedEquipo={selectedEquipo}
+        onEquipoMove={handleEquipoMove}
+        onEquipoMoveEnd={handleEquipoMoveEnd}
+        onEquipoRemove={handleEquipoRemove}
+        areas={officeAreas}
+        onAreasChange={handleAreasChange}
+        isCreatingArea={isCreatingArea}
+        onAreaCreated={handleAreaCreated}
+      />
+
 
       {/* Gestión de Áreas */}
       <AreaManager 

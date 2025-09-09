@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Stage, Layer, Rect, Circle, Text, Group, Line } from 'react-konva';
+import { generateUniqueAreaId } from '../../utils/idGenerator';
 import { 
   MapPinIcon, 
   ComputerDesktopIcon, 
@@ -398,7 +399,7 @@ const OfficeMapKonva = ({
     
     if (width > 20 && height > 20) {
       const newArea = {
-        id: `area_${Date.now()}`,
+        id: generateUniqueAreaId(),
         name: 'Nueva Área',
         x: Math.min(areaCreation.startX, areaCreation.currentX),
         y: Math.min(areaCreation.startY, areaCreation.currentY),

@@ -7,6 +7,7 @@ import {
   ExclamationTriangleIcon,
   CheckCircleIcon
 } from '@heroicons/react/24/outline';
+import { generateUniqueAreaId } from '../../utils/idGenerator';
 
 const AreaManager = ({ 
   areas, 
@@ -55,7 +56,7 @@ const AreaManager = ({
 
   const handleCreateArea = () => {
     const newArea = {
-      id: `area_${Date.now()}`,
+      id: generateUniqueAreaId(),
       name: 'Nueva Área',
       x: 100,
       y: 100,
@@ -110,7 +111,7 @@ const AreaManager = ({
 
       {/* Lista de áreas */}
       <div className="space-y-4">
-        {areas.map((area) => {
+        {Array.isArray(areas) && areas.map((area) => {
           const stats = getAreaStats(area);
           return (
             <div

@@ -396,3 +396,40 @@ dialog::backdrop { background-color: rgba(0, 0, 0, 0.5); }
 .error-icon {
   @apply mx-auto w-24 h-24 bg-red-50 rounded-full flex items-center justify-center mb-6;
 }
+
+/* React Flow estilos personalizados */
+.react-flow__node-equipo {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.react-flow__node-area {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.react-flow__controls {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.react-flow__minimap {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.react-flow__background {
+  background-color: #f9fafb;
+}
+
+.react-flow__edge-path {
+  stroke: #6b7280;
+  stroke-width: 2;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #3b82f6;
+  stroke-width: 3;
+}

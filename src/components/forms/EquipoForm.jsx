@@ -10,6 +10,7 @@ function EquipoForm({ itemToEdit, onSuccess }) {
     marca: "",
     modelo: "",
     numero_serie: "",
+    codigo_interno: "",
     estado: "Bueno",
     ubicacion: "",
     proveedor_id: "",
@@ -64,6 +65,7 @@ function EquipoForm({ itemToEdit, onSuccess }) {
         marca: "",
         modelo: "",
         numero_serie: "",
+        codigo_interno: "",
         estado: "Bueno",
         ubicacion: "",
         proveedor_id: "",
@@ -192,6 +194,17 @@ function EquipoForm({ itemToEdit, onSuccess }) {
             onChange={handleChange}
             required
             className="input-style"
+          />
+        </div>
+        <div>
+          <label>Código Interno</label>
+          <input
+            type="text"
+            name="codigo_interno"
+            value={formData.codigo_interno}
+            onChange={handleChange}
+            className="input-style"
+            placeholder="Ej: PC-001, LAP-002"
           />
         </div>
         <div className="md:col-span-2">

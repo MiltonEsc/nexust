@@ -3,13 +3,12 @@ import { MapIcon, PlusIcon, EyeIcon, EyeSlashIcon, Cog6ToothIcon, DocumentDuplic
 import { supabase } from '../supabaseClient';
 import { useAppContext } from '../context/AppContext';
 import toast from 'react-hot-toast';
-import ReactFlowMap from '../components/maps/ReactFlowMap';
+import Map2D from '../components/maps/Map2D';
 import DrawIOSync from '../components/maps/DrawIOSync';
 import EquipoLocationModal from '../components/modals/EquipoLocationModal';
 import AssetDetailModal from '../components/modals/AssetDetailModal';
 import AreaConfigModal from '../components/modals/AreaConfigModal';
 import TemplateSelectModal from '../components/modals/TemplateSelectModal';
-import AreaManager from '../components/maps/AreaManager';
 
 const MapasPage = () => {
   const { activeCompany } = useAppContext();
@@ -28,7 +27,7 @@ const MapasPage = () => {
   const [isDraggingFromCard, setIsDraggingFromCard] = useState(false);
   const [isCreatingArea, setIsCreatingArea] = useState(false);
   const [editingArea, setEditingArea] = useState(null);
-  // Solo React Flow ahora
+  // Using only 2D view now
 
   // Hook de sincronización con draw.io
   const drawIOSync = DrawIOSync({
@@ -83,9 +82,13 @@ const MapasPage = () => {
   // Manejar selección de equipo
   const handleEquipoSelect = (equipo) => {
     setSelectedEquipo(equipo);
-    if (equipo) {
-      setShowDetailModal(true);
-    }
+    // No abrir modal automáticamente para permitir arrastre
+  };
+
+  // Manejar doble clic en equipo para abrir modal
+  const handleEquipoDoubleClick = (equipo) => {
+    setSelectedEquipo(equipo);
+    setShowDetailModal(true);
   };
 
   // Manejar selección de área
@@ -447,53 +450,6 @@ const MapasPage = () => {
           </div>
         </div>
         
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowUnlocated(!showUnlocated)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium ${
-              showUnlocated 
-                ? 'bg-yellow-100 text-yellow-800' 
-                : 'bg-gray-100 text-gray-700'
-            }`}
-          >
-            {showUnlocated ? <EyeSlashIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
-            {showUnlocated ? 'Ocultar sin ubicación' : 'Mostrar sin ubicación'}
-          </button>
-          <button
-            onClick={() => setIsCreatingArea(!isCreatingArea)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium ${
-              isCreatingArea 
-                ? 'bg-cyan-100 text-cyan-800' 
-                : 'bg-gray-100 text-gray-700'
-            }`}
-          >
-            <PlusIcon className="h-4 w-4" />
-            {isCreatingArea ? 'Cancelar Crear Área' : 'Crear Área'}
-          </button>
-          <button
-            onClick={() => setShowTemplateSelect(true)}
-            className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-green-100 text-green-800 hover:bg-green-200"
-          >
-            <DocumentDuplicateIcon className="h-4 w-4" />
-            Plantillas
-          </button>
-          
-          <button
-            onClick={() => drawIOSync.exportToDrawIO()}
-            className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-purple-100 text-purple-800 hover:bg-purple-200"
-            disabled={drawIOSync.isSyncing}
-          >
-            <ArrowPathIcon className={`h-4 w-4 ${drawIOSync.isSyncing ? 'animate-spin' : ''}`} />
-            {drawIOSync.isSyncing ? 'Sincronizando...' : 'Sincronizar'}
-          </button>
-          <button
-            onClick={() => setShowAreaConfig(true)}
-            className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-blue-100 text-blue-800 hover:bg-blue-200"
-          >
-            <Cog6ToothIcon className="h-4 w-4" />
-            Configurar Áreas
-          </button>
-        </div>
       </div>
 
       {/* Estadísticas */}
@@ -539,29 +495,14 @@ const MapasPage = () => {
         </div>
       </div>
 
-      {/* Mapa - Solo React Flow */}
-      <ReactFlowMap 
-        equipos={filteredEquipos}
+      {/* Mapa 2D */}
+      <Map2D 
         onEquipoSelect={handleEquipoSelect}
+        onEquipoDoubleClick={handleEquipoDoubleClick}
         selectedEquipo={selectedEquipo}
-        onEquipoMove={handleEquipoMove}
-        onEquipoMoveEnd={handleEquipoMoveEnd}
-        onEquipoRemove={handleEquipoRemove}
-        areas={officeAreas}
-        onAreasChange={handleAreasChange}
-        isCreatingArea={isCreatingArea}
-        onAreaCreated={handleAreaCreated}
       />
 
 
-      {/* Gestión de Áreas */}
-      <AreaManager 
-        areas={officeAreas}
-        onAreasChange={handleAreasChange}
-        equipos={equipos}
-        onEditArea={handleAreaEdit}
-        onDeleteArea={handleAreaDelete}
-      />
 
       {/* Lista de equipos sin ubicación */}
       {showUnlocated && (

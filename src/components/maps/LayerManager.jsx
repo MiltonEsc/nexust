@@ -178,15 +178,15 @@ const LayerManager = ({
                       e.stopPropagation();
                       toggleLayerVisibility(layerId);
                     }}
-                    className={`p-1 rounded hover:bg-gray-200 ${
+                    className={`p-1 rounded hover:bg-gray-200 transition-all duration-200 hover:scale-110 ${
                       layer.visible ? 'text-gray-600' : 'text-gray-400'
                     }`}
                     title={layer.visible ? 'Ocultar capa' : 'Mostrar capa'}
                   >
                     {layer.visible ? (
-                      <EyeIcon className="w-4 h-4" />
+                      <EyeIcon className="w-4 h-4 transition-transform duration-200" />
                     ) : (
-                      <EyeSlashIcon className="w-4 h-4" />
+                      <EyeSlashIcon className="w-4 h-4 transition-transform duration-200" />
                     )}
                   </button>
 
@@ -196,15 +196,15 @@ const LayerManager = ({
                       e.stopPropagation();
                       toggleLayerLock(layerId);
                     }}
-                    className={`p-1 rounded hover:bg-gray-200 ${
+                    className={`p-1 rounded hover:bg-gray-200 transition-all duration-200 hover:scale-110 ${
                       layer.locked ? 'text-red-500' : 'text-green-500'
                     }`}
                     title={layer.locked ? 'Desbloquear capa' : 'Bloquear capa'}
                   >
                     {layer.locked ? (
-                      <LockClosedIcon className="w-4 h-4" />
+                      <LockClosedIcon className="w-4 h-4 transition-transform duration-200" />
                     ) : (
-                      <LockOpenIcon className="w-4 h-4" />
+                      <LockOpenIcon className="w-4 h-4 transition-transform duration-200" />
                     )}
                   </button>
 
@@ -215,20 +215,20 @@ const LayerManager = ({
                         e.stopPropagation();
                         moveLayerUp(layerId);
                       }}
-                      className="p-0.5 text-gray-400 hover:text-gray-600"
+                      className="p-0.5 text-gray-400 hover:text-gray-600 transition-all duration-200 hover:scale-110"
                       title="Subir capa"
                     >
-                      <ChevronUpIcon className="w-3 h-3" />
+                      <ChevronUpIcon className="w-3 h-3 transition-transform duration-200" />
                     </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         moveLayerDown(layerId);
                       }}
-                      className="p-0.5 text-gray-400 hover:text-gray-600"
+                      className="p-0.5 text-gray-400 hover:text-gray-600 transition-all duration-200 hover:scale-110"
                       title="Bajar capa"
                     >
-                      <ChevronDownIcon className="w-3 h-3" />
+                      <ChevronDownIcon className="w-3 h-3 transition-transform duration-200" />
                     </button>
                   </div>
 
@@ -239,7 +239,7 @@ const LayerManager = ({
                         e.stopPropagation();
                         onLayerDelete(layerId);
                       }}
-                      className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded"
+                      className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-all duration-200 hover:scale-110"
                       title="Eliminar capa"
                     >
                       <TrashIcon className="w-4 h-4" />

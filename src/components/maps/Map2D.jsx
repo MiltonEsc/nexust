@@ -44,10 +44,10 @@ const ICONS = {
 // === LAYERS SYSTEM ===
 const LAYERS = {
     BACKGROUND: 0,      // Fondo del mapa
+    LOCKED_AREAS: 5,    // Áreas bloqueadas (más bajas)
+    LOCKED_EQUIPMENT: 6, // Equipos bloqueados (más bajas)
     AREAS: 10,          // Áreas normales
     EQUIPMENT: 20,      // Equipos normales
-    LOCKED_AREAS: 30,   // Áreas bloqueadas (siempre visibles)
-    LOCKED_EQUIPMENT: 40, // Equipos bloqueados
     SELECTED: 50,       // Elementos seleccionados (más alto)
     UI_OVERLAY: 100     // Elementos de interfaz
 };
@@ -176,7 +176,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         // Verificar si está bloqueado por la capa
         const isLocked = isLayerLocked ? isLayerLocked('item', data.id) : data.locked;
         
-        // Si está bloqueado
+        // Si está bloqueado, usar capas de bloqueo (más bajas)
         if (isLocked) {
             if (isArea) {
                 baseLayer = LAYERS.LOCKED_AREAS;
@@ -189,7 +189,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
                 layerType = 'locked_areas';
             }
         } else {
-            // Elementos normales
+            // Elementos normales (más altos)
             if (isArea) {
                 baseLayer = LAYERS.AREAS;
                 layerType = 'areas';
@@ -229,7 +229,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
     return (
         <div
             ref={itemRef}
-            className={`absolute ${cursorClass} ${selectionClass}`}
+            className={`absolute ${cursorClass} ${selectionClass} transition-all duration-300 ease-out`}
             style={{
                 left: `${isDragging ? tempPosition.x : data.x}px`,
                 top: `${isDragging ? tempPosition.y : data.y}px`,
@@ -239,7 +239,9 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
                 position: 'absolute',
                 opacity: getElementOpacity(),
                 willChange: (isDragging || isResizing) ? 'transform' : 'auto',
-                transition: (isDragging || isResizing) ? 'none' : 'all 0.1s ease-out',
+                transition: (isDragging || isResizing) ? 'none' : 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                transform: (isDragging || isResizing) ? 'scale(1.02)' : 'scale(1)',
+                filter: (isDragging || isResizing) ? 'drop-shadow(0 10px 25px rgba(0, 0, 0, 0.15))' : 'drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1))',
             }}
             onMouseDown={(e) => handleMouseDown(e, 'drag')}
             onClick={(e) => {
@@ -254,13 +256,13 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         >
             {children}
             {isLocked && (
-                <div className="absolute top-1.5 left-1.5 p-1 bg-black/30 rounded-full flex items-center justify-center" title="Elemento bloqueado - Clic derecho para ver propiedades">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                <div className="absolute top-1.5 left-1.5 p-1 bg-black/30 rounded-full flex items-center justify-center animate-pulse" title="Elemento bloqueado - Clic derecho para ver propiedades">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-bounce"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                 </div>
             )}
             {isSelected && !isLocked && (
                  <div
-                    className="absolute bottom-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize -mr-2 -mb-2"
+                    className="absolute bottom-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize -mr-2 -mb-2 transition-all duration-200 hover:scale-110 hover:shadow-lg animate-pulse"
                     onMouseDown={(e) => handleMouseDown(e, 'resize')}
                  />
             )}
@@ -509,7 +511,7 @@ const LayersPanel = ({ floors, activeFloorId, onToggleLayer, onSelectItem, reset
 };
 
 // === COMPONENT: Properties Panel ===
-const PropertiesPanel = ({ selectedItem, onUpdate, onDelete, availableEquipos = [] }) => {
+const PropertiesPanel = ({ selectedItem, onUpdate, onDelete, availableEquipos = [], copyElement, pasteElement, duplicateElement, clipboard }) => {
     if (!selectedItem) {
         return (
             <div className="w-80 bg-white border-l border-gray-200 p-6 flex flex-col items-center justify-center text-center">
@@ -614,7 +616,60 @@ const PropertiesPanel = ({ selectedItem, onUpdate, onDelete, availableEquipos = 
                 </div>
             </div>
             <div className="mt-auto pt-4 border-t space-y-3">
-                 <button onClick={() => onDelete(selectedItem.id)} className="w-full bg-red-500 text-white font-bold py-2 px-4 rounded-md hover:bg-red-600">Eliminar Elemento</button>
+                <div className="grid grid-cols-2 gap-2">
+                    <button 
+                        onClick={() => copyElement(selectedItem.id)}
+                        className="bg-blue-500 text-white font-bold py-2 px-3 rounded-md hover:bg-blue-600 transition-all duration-200 hover:scale-105 flex items-center justify-center gap-1"
+                        title="Copiar elemento (Ctrl+C)"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        Copiar
+                    </button>
+                    <button 
+                        onClick={pasteElement}
+                        disabled={!clipboard}
+                        className={`font-bold py-2 px-3 rounded-md transition-all duration-200 hover:scale-105 flex items-center justify-center gap-1 ${
+                            clipboard 
+                                ? 'bg-green-500 text-white hover:bg-green-600' 
+                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        }`}
+                        title="Pegar elemento (Ctrl+V)"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                        </svg>
+                        Pegar
+                    </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                    <button 
+                        onClick={() => duplicateElement(selectedItem.id)}
+                        className="bg-purple-500 text-white font-bold py-2 px-3 rounded-md hover:bg-purple-600 transition-all duration-200 hover:scale-105 flex items-center justify-center gap-1"
+                        title="Duplicar elemento (Ctrl+D o F5)"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            <path d="M9 9h6v6"></path>
+                        </svg>
+                        Duplicar
+                    </button>
+                    <button 
+                        onClick={() => onDelete(selectedItem.id)} 
+                        className="bg-red-500 text-white font-bold py-2 px-3 rounded-md hover:bg-red-600 transition-all duration-200 hover:scale-105 flex items-center justify-center gap-1"
+                        title="Eliminar elemento"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3,6 5,6 21,6"></polyline>
+                            <path d="M19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
+                        </svg>
+                        Eliminar
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -635,6 +690,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     const [dragOverItem, setDragOverItem] = useState(null);
     const [layers, setLayers] = useState({});
     const [selectedLayer, setSelectedLayer] = useState(null);
+    const [clipboard, setClipboard] = useState(null);
     const { activeCompany } = useAppContext();
 
     const isPanning = useRef(false);
@@ -1070,8 +1126,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         const customZIndex = itemZIndex[itemId] || 0;
         const itemLayerId = `item_${itemId}`;
         const layerZIndex = layers[itemLayerId]?.zIndex || 0;
-        const finalZIndex = layerZIndex + customZIndex;
-        console.log(`getFinalZIndex: ${itemId} = ${layerZIndex} + ${customZIndex} = ${finalZIndex}`);
+        const finalZIndex = baseLayer + layerZIndex + customZIndex;
+        console.log(`getFinalZIndex: ${itemId} = ${baseLayer} + ${layerZIndex} + ${customZIndex} = ${finalZIndex}`);
         return finalZIndex;
     }, [itemZIndex, layers]);
 
@@ -1103,6 +1159,58 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         }
         return false;
     }, [layers]);
+
+    // Función para copiar elemento
+    const copyElement = useCallback((itemId) => {
+        const currentFloor = floors.find(f => f.id === activeFloorId);
+        if (currentFloor && currentFloor.items) {
+            const item = currentFloor.items.find(i => i.id === itemId);
+            if (item) {
+                setClipboard({
+                    ...item,
+                    id: `temp_${Date.now()}`, // ID temporal para evitar conflictos
+                    x: item.x + 20, // Offset para que no se superponga
+                    y: item.y + 20
+                });
+                console.log('Elemento copiado:', item.name);
+            }
+        }
+    }, [floors, activeFloorId]);
+
+    // Función para pegar elemento
+    const pasteElement = useCallback(() => {
+        if (!clipboard) return;
+        
+        const currentFloor = floors.find(f => f.id === activeFloorId);
+        if (currentFloor) {
+            const newItem = {
+                ...clipboard,
+                id: `item_${Date.now()}`, // Nuevo ID único
+                name: `${clipboard.name} (Copia)`,
+                x: clipboard.x + 20, // Offset adicional
+                y: clipboard.y + 20
+            };
+            
+            // Agregar el elemento al piso actual
+            const updatedFloor = {
+                ...currentFloor,
+                items: [...(currentFloor.items || []), newItem]
+            };
+            
+            setFloors(prev => prev.map(f => f.id === activeFloorId ? updatedFloor : f));
+            setSelectedId(newItem.id);
+            console.log('Elemento pegado:', newItem.name);
+        }
+    }, [clipboard, floors, activeFloorId, setFloors]);
+
+    // Función para duplicar elemento
+    const duplicateElement = useCallback((itemId) => {
+        copyElement(itemId);
+        // Pequeño delay para asegurar que el clipboard se actualice
+        setTimeout(() => {
+            pasteElement();
+        }, 100);
+    }, [copyElement, pasteElement]);
 
     // Crear capas individuales para cada elemento
     const updateLayersForItems = useCallback(() => {
@@ -1147,11 +1255,51 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         updateLayersForItems();
     }, [updateLayersForItems]);
 
-    // Forzar re-render cuando cambien las capas
+    // Atajos de teclado
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            // Solo procesar atajos si no estamos en un input
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            
+            if (e.ctrlKey || e.metaKey) {
+                switch (e.key.toLowerCase()) {
+                    case 'c':
+                        if (selectedId) {
+                            e.preventDefault();
+                            copyElement(selectedId);
+                        }
+                        break;
+                    case 'v':
+                        e.preventDefault();
+                        pasteElement();
+                        break;
+                    case 'd':
+                        if (selectedId) {
+                            e.preventDefault();
+                            duplicateElement(selectedId);
+                        }
+                        break;
+                }
+            }
+            
+            // Atajo para duplicar con F5
+            if (e.key === 'F5') {
+                e.preventDefault();
+                if (selectedId) {
+                    duplicateElement(selectedId);
+                }
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [selectedId, copyElement, pasteElement, duplicateElement]);
+
+    // Forzar re-render cuando cambien las capas (solo cuando realmente cambien)
     useEffect(() => {
         // Este efecto fuerza el re-render de los elementos cuando cambian las capas
         console.log('Layers changed, forcing re-render');
-    }, [layers]);
+    }, [Object.keys(layers).length]);
 
     // Update equipos when items change
     const updateEquipoPosition = useCallback(async (itemId, newProps) => {
@@ -1434,10 +1582,21 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
   return (
         <div className="h-[800px] w-full bg-gray-100 flex flex-col font-sans select-none rounded-lg border">
             <header className="bg-white border-b p-3 shadow-sm flex items-center justify-between z-20">
-                <h1 className="text-xl font-bold">Plano de Activos</h1>
+                <div className="flex items-center gap-4">
+                    <h1 className="text-xl font-bold">Plano de Activos</h1>
+                    {clipboard && (
+                        <div className="flex items-center gap-2 bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium animate-pulse">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            {clipboard.name} listo para pegar
+                        </div>
+                    )}
+                </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={() => handleAddItem('area')} className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-blue-600">Añadir Área</button>
-                    <button onClick={() => handleAddItem('equipment')} className="bg-green-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-green-600">Añadir Equipo</button>
+                    <button onClick={() => handleAddItem('area')} className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-blue-600 transition-all duration-200 hover:scale-105">Añadir Área</button>
+                    <button onClick={() => handleAddItem('equipment')} className="bg-green-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-green-600 transition-all duration-200 hover:scale-105">Añadir Equipo</button>
       </div>
             </header>
             
@@ -1525,7 +1684,16 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                             selectedLayer={selectedLayer}
                         />
                         ) : (
-                            <PropertiesPanel selectedItem={selectedItem} onUpdate={handleUpdateItem} onDelete={handleDeleteItem} availableEquipos={equipos}/>
+                            <PropertiesPanel 
+                                selectedItem={selectedItem} 
+                                onUpdate={handleUpdateItem} 
+                                onDelete={handleDeleteItem} 
+                                availableEquipos={equipos}
+                                copyElement={copyElement}
+                                pasteElement={pasteElement}
+                                duplicateElement={duplicateElement}
+                                clipboard={clipboard}
+                            />
                         )}
                     </div>
                   </div>

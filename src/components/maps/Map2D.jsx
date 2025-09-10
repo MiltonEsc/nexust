@@ -57,12 +57,14 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
     const itemRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
+    const [resizeDirection, setResizeDirection] = useState(null); // 'se', 'sw', 'ne', 'nw'
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
     const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
     const [tempPosition, setTempPosition] = useState({ x: data.x, y: data.y });
     const [tempSize, setTempSize] = useState({ width: data.width, height: data.height });
     const animationFrameRef = useRef(null);
-    const lastMoveTime = useRef(0);
+    const lastUpdateTime = useRef(0);
+    const updateThrottle = 16; // ~60fps
 
     // Sincronizar posiciones temporales con data cuando no estamos arrastrando
     useEffect(() => {
@@ -81,9 +83,9 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         };
     }, []);
 
-    const handleMouseDown = useCallback((e, actionType) => {
+    const handleMouseDown = useCallback((e, actionType, direction = null) => {
         // Solo preventDefault si es necesario
-        if (actionType === 'drag' || actionType === 'resize') {
+        if (actionType === 'drag' || actionType.startsWith('resize')) {
             e.preventDefault();
         }
         e.stopPropagation();
@@ -106,10 +108,20 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             
             setIsDragging(true);
             setDragStart({
-                x: e.clientX - data.x,
-                y: e.clientY - data.y
+                x: e.clientX,
+                y: e.clientY
             });
             setTempPosition({ x: data.x, y: data.y });
+            
+            // Debug para elementos recién creados
+            const isNewElement = data.id.includes(Date.now().toString().slice(-6)); // Últimos 6 dígitos del timestamp
+            if (isNewElement || data.name.includes('Nueva') || data.name.includes('Vacío')) {
+                console.log(`Iniciando arrastre de elemento nuevo: ${data.name}`, {
+                    elementPos: { x: data.x, y: data.y },
+                    mousePos: { x: e.clientX, y: e.clientY },
+                    scale: scale
+                });
+            }
             
             // Si hay selección múltiple real (más de 1 elemento), guardar las posiciones iniciales
             if (isMultiSelected && onMoveSelectedElements && selectedIds.size > 1) {
@@ -125,26 +137,41 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
                     console.log(`Posiciones iniciales guardadas para ${initialPositions.size} elementos`);
                 }
             }
-        } else if (actionType === 'resize') {
+        } else if (actionType.startsWith('resize')) {
             // Para resize, necesitamos seleccionar el elemento si no está seleccionado
             if (!isSelected) {
                 onSelect(data);
             }
             setIsResizing(true);
+            setResizeDirection(direction);
             setResizeStart({
                 x: e.clientX,
                 y: e.clientY,
                 width: data.width,
-                height: data.height
+                height: data.height,
+                elementX: data.x,
+                elementY: data.y
             });
             setTempSize({ width: data.width, height: data.height });
+            setTempPosition({ x: data.x, y: data.y });
         }
     }, [data, onSelect, isLayerLocked]);
 
     const handleMouseMove = useCallback((e) => {
         if (isDragging) {
-            const newX = e.clientX - dragStart.x;
-            const newY = e.clientY - dragStart.y;
+            const newX = data.x + (e.clientX - dragStart.x) / scale;
+            const newY = data.y + (e.clientY - dragStart.y) / scale;
+            
+            // Debug para elementos recién creados
+            const isNewElement = data.name.includes('Nueva') || data.name.includes('Vacío');
+            if (isNewElement) {
+                console.log(`Moviendo elemento nuevo: ${data.name}`, {
+                    originalPos: { x: data.x, y: data.y },
+                    newPos: { x: newX, y: newY },
+                    mouseDelta: { x: e.clientX - dragStart.x, y: e.clientY - dragStart.y },
+                    scale: scale
+                });
+            }
             
             // Si hay selección múltiple real (más de 1 elemento), mover todos los elementos seleccionados
             if (isMultiSelected && onMoveSelectedElements && selectedIds.size > 1) {
@@ -152,40 +179,90 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
                 const deltaX = newX - data.x;
                 const deltaY = newY - data.y;
                 
-                // Actualizar la posición visual temporal inmediatamente para feedback
+                // Actualizar la posición visual temporal inmediatamente para feedback visual
                 setTempPosition({ x: newX, y: newY });
                 
-                // Throttling con requestAnimationFrame para mejor rendimiento
-                if (!lastMoveTime.current) {
-                    lastMoveTime.current = requestAnimationFrame(() => {
-                        onMoveSelectedElements(deltaX, deltaY);
-                        lastMoveTime.current = null;
-                    });
+                // Throttling inteligente: solo actualizar cada 16ms (~60fps) para evitar bucles
+                const now = Date.now();
+                if (now - lastUpdateTime.current >= updateThrottle) {
+                    onMoveSelectedElements(deltaX, deltaY);
+                    lastUpdateTime.current = now;
                 }
             } else {
                 // Movimiento individual - sin throttling para máxima responsividad
                 setTempPosition({ x: newX, y: newY });
             }
         } else if (isResizing) {
-            const deltaX = e.clientX - resizeStart.x;
-            const deltaY = e.clientY - resizeStart.y;
-            const newWidth = Math.max(50, resizeStart.width + deltaX);
-            const newHeight = Math.max(50, resizeStart.height + deltaY);
+            const deltaX = (e.clientX - resizeStart.x) / scale;
+            const deltaY = (e.clientY - resizeStart.y) / scale;
+            
+            let newWidth = resizeStart.width;
+            let newHeight = resizeStart.height;
+            let newX = resizeStart.elementX;
+            let newY = resizeStart.elementY;
+            
+            // Calcular nuevas dimensiones y posición según la dirección
+            switch (resizeDirection) {
+                case 'se': // Esquina inferior derecha (comportamiento original)
+                    newWidth = Math.max(50, resizeStart.width + deltaX);
+                    newHeight = Math.max(50, resizeStart.height + deltaY);
+                    break;
+                case 'sw': // Esquina inferior izquierda
+                    newWidth = Math.max(50, resizeStart.width - deltaX);
+                    newHeight = Math.max(50, resizeStart.height + deltaY);
+                    newX = resizeStart.elementX + deltaX;
+                    if (newWidth === 50) newX = resizeStart.elementX + resizeStart.width - 50;
+                    break;
+                case 'ne': // Esquina superior derecha
+                    newWidth = Math.max(50, resizeStart.width + deltaX);
+                    newHeight = Math.max(50, resizeStart.height - deltaY);
+                    newY = resizeStart.elementY + deltaY;
+                    if (newHeight === 50) newY = resizeStart.elementY + resizeStart.height - 50;
+                    break;
+                case 'nw': // Esquina superior izquierda
+                    newWidth = Math.max(50, resizeStart.width - deltaX);
+                    newHeight = Math.max(50, resizeStart.height - deltaY);
+                    newX = resizeStart.elementX + deltaX;
+                    newY = resizeStart.elementY + deltaY;
+                    if (newWidth === 50) newX = resizeStart.elementX + resizeStart.width - 50;
+                    if (newHeight === 50) newY = resizeStart.elementY + resizeStart.height - 50;
+                    break;
+                default: // Fallback al comportamiento original
+                    newWidth = Math.max(50, resizeStart.width + deltaX);
+                    newHeight = Math.max(50, resizeStart.height + deltaY);
+                    break;
+            }
+            
             setTempSize({ width: newWidth, height: newHeight });
+            setTempPosition({ x: newX, y: newY });
         }
-    }, [isDragging, isResizing, dragStart, resizeStart, isMultiSelected, onMoveSelectedElements, data.x, data.y]);
+    }, [isDragging, isResizing, dragStart, resizeStart, resizeDirection, isMultiSelected, onMoveSelectedElements, data.x, data.y, selectedIds.size, updateThrottle, scale]);
 
     const handleMouseUp = useCallback(() => {
         if (isDragging) {
-            // Actualizar BD con la posición final
-            onUpdate(data.id, { x: tempPosition.x, y: tempPosition.y });
+            // Actualizar BD con la posición final (redondeada a enteros)
+            onUpdate(data.id, { x: Math.round(tempPosition.x), y: Math.round(tempPosition.y) });
             setIsDragging(false);
+            // Limpiar el tiempo de actualización
+            lastUpdateTime.current = 0;
         } else if (isResizing) {
-            // Actualizar BD con el tamaño final
-            onUpdate(data.id, { width: tempSize.width, height: tempSize.height });
+            // Actualizar BD con el tamaño y posición final (redondeado a enteros)
+            const updateData = { 
+                width: Math.round(tempSize.width), 
+                height: Math.round(tempSize.height)
+            };
+            
+            // Solo actualizar posición si cambió (para esquinas que mueven el elemento)
+            if (resizeDirection === 'sw' || resizeDirection === 'ne' || resizeDirection === 'nw') {
+                updateData.x = Math.round(tempPosition.x);
+                updateData.y = Math.round(tempPosition.y);
+            }
+            
+            onUpdate(data.id, updateData);
             setIsResizing(false);
+            setResizeDirection(null);
         }
-    }, [isDragging, isResizing, tempPosition, tempSize, data.id, onUpdate]);
+    }, [isDragging, isResizing, resizeDirection, tempPosition, tempSize, data.id, onUpdate]);
 
     const handleDoubleClick = useCallback((e) => {
         e.preventDefault();
@@ -280,6 +357,11 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
 
     // No renderizar si la capa no está visible
     if (!shouldBeVisible()) {
+        console.log(`Elemento no renderizado por capa invisible:`, {
+            id: data.id,
+            name: data.name,
+            type: data.type
+        });
         return null;
     }
 
@@ -288,8 +370,8 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             ref={itemRef}
             className={`absolute ${cursorClass} ${selectionClass} ${multiSelectionClass} transition-all duration-300 ease-out`}
             style={{
-                left: `${isDragging ? tempPosition.x : data.x}px`,
-                top: `${isDragging ? tempPosition.y : data.y}px`,
+                left: `${(isDragging || isResizing) ? tempPosition.x : data.x}px`,
+                top: `${(isDragging || isResizing) ? tempPosition.y : data.y}px`,
                 width: `${isResizing ? tempSize.width : data.width}px`,
                 height: `${isResizing ? tempSize.height : data.height}px`,
                 zIndex: getLayer(),
@@ -325,10 +407,39 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
                 </div>
             )}
             {isSelected && !isLocked && (
-                 <div
-                    className="absolute bottom-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize -mr-2 -mb-2 transition-all duration-200 hover:scale-110 hover:shadow-lg animate-pulse"
-                    onMouseDown={(e) => handleMouseDown(e, 'resize')}
-                 />
+                <>
+                    {/* Manijas de redimensionamiento para áreas - 4 esquinas */}
+                    {data.type === 'area' ? (
+                        <>
+                            {/* Esquina superior izquierda */}
+                            <div
+                                className="absolute top-0 left-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nw-resize -ml-2 -mt-2 transition-all duration-200 hover:scale-110 hover:shadow-lg"
+                                onMouseDown={(e) => handleMouseDown(e, 'resize', 'nw')}
+                            />
+                            {/* Esquina superior derecha */}
+                            <div
+                                className="absolute top-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-ne-resize -mr-2 -mt-2 transition-all duration-200 hover:scale-110 hover:shadow-lg"
+                                onMouseDown={(e) => handleMouseDown(e, 'resize', 'ne')}
+                            />
+                            {/* Esquina inferior izquierda */}
+                            <div
+                                className="absolute bottom-0 left-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-sw-resize -ml-2 -mb-2 transition-all duration-200 hover:scale-110 hover:shadow-lg"
+                                onMouseDown={(e) => handleMouseDown(e, 'resize', 'sw')}
+                            />
+                            {/* Esquina inferior derecha */}
+                            <div
+                                className="absolute bottom-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize -mr-2 -mb-2 transition-all duration-200 hover:scale-110 hover:shadow-lg"
+                                onMouseDown={(e) => handleMouseDown(e, 'resize', 'se')}
+                            />
+                        </>
+                    ) : (
+                        /* Manija única para equipos (comportamiento original) */
+                        <div
+                            className="absolute bottom-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize -mr-2 -mb-2 transition-all duration-200 hover:scale-110 hover:shadow-lg animate-pulse"
+                            onMouseDown={(e) => handleMouseDown(e, 'resize', 'se')}
+                        />
+                    )}
+                </>
             )}
         </div>
     );
@@ -1209,6 +1320,76 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         }));
     }, [layers]);
 
+    // Función para manejar doble click en capas - localizar elemento en canvas
+    const handleLayerDoubleClick = useCallback((layerId, layer) => {
+        // Solo funciona para capas de elementos (no capas personalizadas)
+        if (!layerId.startsWith('item_')) return;
+        
+        // Extraer el ID del elemento del ID de la capa
+        const itemId = layerId.replace('item_', '');
+        
+        // Buscar el elemento en el piso activo
+        const activeFloor = floors.find(f => f.id === activeFloorId);
+        const item = activeFloor?.items.find(i => i.id === itemId);
+        
+        if (!item) {
+            console.warn(`Elemento ${itemId} no encontrado en el piso activo`);
+            return;
+        }
+        
+        // Seleccionar el elemento
+        setSelectedId(itemId);
+        
+        // Calcular el centro del elemento
+        const centerX = item.x + item.width / 2;
+        const centerY = item.y + item.height / 2;
+        
+        // Obtener dimensiones del canvas container
+        const canvasContainer = document.getElementById('canvas-container');
+        if (!canvasContainer) return;
+        
+        const containerRect = canvasContainer.getBoundingClientRect();
+        const containerCenterX = containerRect.width / 2;
+        const containerCenterY = containerRect.height / 2;
+        
+        // Calcular nueva posición del transform para centrar el elemento
+        const newTransformX = containerCenterX - (centerX * transform.scale);
+        const newTransformY = containerCenterY - (centerY * transform.scale);
+        
+        // Aplicar la nueva transformación con animación suave
+        setTransform(prev => ({
+            ...prev,
+            x: newTransformX,
+            y: newTransformY
+        }));
+        
+        // Mostrar feedback visual temporal
+        console.log(`Localizando elemento: ${item.name} en posición (${item.x}, ${item.y})`);
+        
+    }, [floors, activeFloorId, transform.scale]);
+
+    // Función para calcular la posición central visible del canvas
+    const getVisibleCenterPosition = useCallback(() => {
+        const canvasContainer = document.getElementById('canvas-container');
+        if (!canvasContainer) {
+            // Fallback a posición por defecto si no se puede obtener el canvas
+            return { x: 100, y: 100 };
+        }
+        
+        const containerRect = canvasContainer.getBoundingClientRect();
+        const containerCenterX = containerRect.width / 2;
+        const containerCenterY = containerRect.height / 2;
+        
+        // Convertir la posición del centro del contenedor a coordenadas del canvas
+        // Teniendo en cuenta el transform actual (escala y traslación)
+        const canvasCenterX = (containerCenterX - transform.x) / transform.scale;
+        const canvasCenterY = (containerCenterY - transform.y) / transform.scale;
+        
+        return {
+            x: Math.max(0, canvasCenterX), // Asegurar que no sea negativo
+            y: Math.max(0, canvasCenterY)  // Asegurar que no sea negativo
+        };
+    }, [transform]);
 
     // Función para obtener el z-index final de un elemento (optimizada con memoización)
     const getFinalZIndex = useCallback((itemId, itemType) => {
@@ -1247,16 +1428,41 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         const mapHeight = 800;  // Ajustar según el tamaño real del mapa
         const margin = 200; // Margen para elementos parcialmente visibles
         
-        return currentFloor.items.filter(item => {
+        const filteredItems = currentFloor.items.filter(item => {
             const itemRight = item.x + item.width;
             const itemBottom = item.y + item.height;
             
             // Verificar si el elemento está dentro del viewport con margen
-            return item.x < mapWidth + margin && 
+            const isInViewport = item.x < mapWidth + margin && 
                    itemRight > -margin && 
                    item.y < mapHeight + margin && 
                    itemBottom > -margin;
+            
+            // Debug: Log elementos que están fuera del viewport
+            if (!isInViewport) {
+                console.log(`Elemento fuera del viewport:`, {
+                    id: item.id,
+                    name: item.name,
+                    x: item.x,
+                    y: item.y,
+                    width: item.width,
+                    height: item.height,
+                    itemRight,
+                    itemBottom,
+                    mapWidth,
+                    mapHeight
+                });
+            }
+            
+            return isInViewport;
         });
+        
+        // Debug: Comparar total vs filtrado
+        if (currentFloor.items.length !== filteredItems.length) {
+            console.log(`Viewport culling: ${currentFloor.items.length} elementos total, ${filteredItems.length} visibles`);
+        }
+        
+        return filteredItems;
     }, [floors, activeFloorId]);
 
     // Función para verificar si una capa está visible
@@ -1264,6 +1470,16 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         if (itemId) {
             const itemLayerId = `item_${itemId}`;
             const isVisible = layers[itemLayerId]?.visible !== false;
+            
+            // Debug: Log capas ocultas
+            if (!isVisible) {
+                console.log(`Capa oculta detectada:`, {
+                    itemId,
+                    layerId: itemLayerId,
+                    layerData: layers[itemLayerId]
+                });
+            }
+            
             return isVisible;
         }
         return true;
@@ -1392,7 +1608,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     // Estado para almacenar las posiciones iniciales de los elementos seleccionados
     const [selectedItemsInitialPositions, setSelectedItemsInitialPositions] = useState(new Map());
 
-    // Función para mover elementos seleccionados (optimizada)
+    // Función para mover elementos seleccionados (optimizada para fluidez)
     const moveSelectedElements = useCallback((deltaX, deltaY) => {
         if (selectedIds.size === 0) return;
         
@@ -1400,17 +1616,20 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             const currentFloor = prev.find(f => f.id === activeFloorId);
             if (!currentFloor) return prev;
 
-            // Solo actualizar elementos seleccionados para mejor rendimiento
+            // Optimización: solo procesar elementos seleccionados
             const updatedItems = currentFloor.items.map(item => {
                 if (selectedIds.has(item.id)) {
                     // Usar la posición inicial + delta para evitar acumulación de errores
                     const initialPos = selectedItemsInitialPositions.get(item.id);
                     if (initialPos) {
-                        return {
-                            ...item,
-                            x: Math.max(0, initialPos.x + deltaX), // Evitar posiciones negativas
-                            y: Math.max(0, initialPos.y + deltaY)
-                        };
+                        const newX = Math.max(0, initialPos.x + deltaX);
+                        const newY = Math.max(0, initialPos.y + deltaY);
+                        
+                        // Solo crear nuevo objeto si la posición realmente cambió
+                        if (item.x !== newX || item.y !== newY) {
+                            return { ...item, x: newX, y: newY };
+                        }
+                        return item;
                     } else {
                         // Fallback: usar posición actual (sin delta para evitar problemas)
                         console.warn(`Posición inicial no encontrada para elemento ${item.id}, usando posición actual`);
@@ -1419,6 +1638,10 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 }
                 return item; // No cambiar elementos no seleccionados
             });
+
+            // Solo actualizar si realmente hay cambios
+            const hasChanges = updatedItems.some((item, index) => item !== currentFloor.items[index]);
+            if (!hasChanges) return prev;
 
             return prev.map(f => 
                 f.id === activeFloorId 
@@ -1668,13 +1891,16 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
     const handleAddItem = async (type) => {
         try {
+            // Calcular posición central visible del canvas
+            const centerPosition = getVisibleCenterPosition();
+            
             const newItem = type === 'area'
                 ? { 
                     id: `area-${Date.now()}`, 
                     type: 'area', 
                     name: 'Nueva Área', 
-                    x: 20, 
-                    y: 20, 
+                    x: Math.round(centerPosition.x - 150), // Centrar el área (ancho 300 / 2)
+                    y: Math.round(centerPosition.y - 100), // Centrar el área (alto 200 / 2)
                     width: 300, 
                     height: 200, 
                     backgroundColor: '#F3F4F6', 
@@ -1688,8 +1914,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     assetTag: '', 
                     status: 'activo', 
                     icon: 'default', 
-                    x: 30, 
-                    y: 30, 
+                    x: Math.round(centerPosition.x - 50), // Centrar el equipo (ancho 100 / 2)
+                    y: Math.round(centerPosition.y - 40), // Centrar el equipo (alto 80 / 2)
                     width: 100, 
                     height: 80, 
                     backgroundColor: '#FEF3C7', 
@@ -1727,7 +1953,36 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
             // Update local state
             updateActiveFloorItems(items => [...items, newItem]);
-            setSelectedId(newItem.id);
+            
+            // Seleccionar el elemento con un pequeño delay para asegurar que se renderice correctamente
+            setTimeout(() => {
+                setSelectedId(newItem.id);
+            }, 50);
+            
+            // Crear la capa para el nuevo elemento si no existe
+            const itemLayerId = `item_${newItem.id}`;
+            setLayers(prev => {
+                if (!prev[itemLayerId]) {
+                    const maxZIndex = Math.max(...Object.values(prev).map(layer => layer.zIndex || 0));
+                    return {
+                        ...prev,
+                        [itemLayerId]: {
+                            visible: true,
+                            locked: false,
+                            opacity: 1,
+                            zIndex: maxZIndex + 1,
+                            itemName: newItem.name,
+                            itemType: newItem.type,
+                            itemId: newItem.id,
+                            type: 'item'
+                        }
+                    };
+                }
+                return prev;
+            });
+            
+            // Feedback visual en consola
+            console.log(`${type === 'area' ? 'Área' : 'Equipo'} "${newItem.name}" creado en posición (${newItem.x}, ${newItem.y})`);
         } catch (error) {
             console.error('Error adding item:', error);
         }
@@ -1750,11 +2005,11 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         try {
             const dbUpdateData = {};
             
-            // Map the updated data to database fields
-            if (updatedData.x !== undefined) dbUpdateData.x = updatedData.x;
-            if (updatedData.y !== undefined) dbUpdateData.y = updatedData.y;
-            if (updatedData.width !== undefined) dbUpdateData.width = updatedData.width;
-            if (updatedData.height !== undefined) dbUpdateData.height = updatedData.height;
+            // Map the updated data to database fields (rounding numeric values to integers)
+            if (updatedData.x !== undefined) dbUpdateData.x = Math.round(updatedData.x);
+            if (updatedData.y !== undefined) dbUpdateData.y = Math.round(updatedData.y);
+            if (updatedData.width !== undefined) dbUpdateData.width = Math.round(updatedData.width);
+            if (updatedData.height !== undefined) dbUpdateData.height = Math.round(updatedData.height);
             if (updatedData.name !== undefined) dbUpdateData.name = updatedData.name;
             if (updatedData.assetTag !== undefined) dbUpdateData.asset_tag = updatedData.assetTag;
             if (updatedData.status !== undefined) dbUpdateData.status = updatedData.status;
@@ -1814,7 +2069,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
     const handleDoubleClick = useCallback((item) => {
         setSelectedId(item.id);
-        if (onEquipoDoubleClick && item.originalData) {
+        // Solo mostrar información de equipo si es un equipo, no un área
+        if (onEquipoDoubleClick && item.originalData && item.type === 'equipment') {
             onEquipoDoubleClick(item.originalData);
         }
     }, [onEquipoDoubleClick]);
@@ -1849,8 +2105,30 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     const handleMouseUpCanvas = () => isPanning.current = false;
 
     const activeFloor = floors.find(f => f.id === activeFloorId);
-    const itemsToRender = visibleItems; // Usar elementos visibles para mejor rendimiento
+    // TEMPORAL: Deshabilitar viewport culling para debug
+    const itemsToRender = activeFloor ? activeFloor.items : []; // visibleItems; // Usar elementos visibles para mejor rendimiento
     const selectedItem = itemsToRender.find(item => item.id === selectedId);
+    
+    // Debug: Log de elementos a renderizar
+    React.useEffect(() => {
+        if (activeFloor && activeFloor.items.length > 0) {
+            console.log(`Renderizado - Piso activo: ${activeFloorId}`);
+            console.log(`Total elementos en piso: ${activeFloor.items.length}`);
+            console.log(`Elementos a renderizar: ${itemsToRender.length}`);
+            console.log('Elementos en piso:', activeFloor.items.map(item => ({
+                id: item.id,
+                name: item.name,
+                x: item.x,
+                y: item.y,
+                width: item.width,
+                height: item.height
+            })));
+            console.log('Elementos a renderizar:', itemsToRender.map(item => ({
+                id: item.id,
+                name: item.name
+            })));
+        }
+    }, [activeFloorId, activeFloor, itemsToRender]);
 
   return (
         <div className="h-[800px] w-full bg-gray-100 flex flex-col font-sans select-none rounded-lg border">
@@ -1987,6 +2265,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                             onLayerSelect={handleLayerSelect}
                             onLayerDelete={handleLayerDelete}
                             onLayerCreate={handleLayerCreate}
+                            onLayerDoubleClick={handleLayerDoubleClick}
                             selectedLayer={selectedLayer}
                         />
                         ) : (

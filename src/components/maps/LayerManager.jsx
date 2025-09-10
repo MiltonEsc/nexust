@@ -23,7 +23,8 @@ const LayerManager = ({
   onLayerDelete,
   onLayerCreate,
   selectedLayer,
-  onLayerSelect
+  onLayerSelect,
+  onLayerDoubleClick
 }) => {
   const [draggedLayer, setDraggedLayer] = useState(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -139,13 +140,15 @@ const LayerManager = ({
                 isSelected 
                   ? 'border-blue-500 bg-blue-50' 
                   : 'border-gray-200 bg-white hover:border-gray-300'
-              } ${isDragging ? 'opacity-50' : ''}`}
+              } ${isDragging ? 'opacity-50' : ''} cursor-pointer`}
               draggable
               onDragStart={(e) => handleDragStart(e, layerId)}
               onDragOver={handleDragOver}
               onDrop={(e) => handleDrop(e, layerId)}
               onDragEnd={handleDragEnd}
               onClick={() => onLayerSelect?.(layerId)}
+              onDoubleClick={() => onLayerDoubleClick?.(layerId, layer)}
+              title="Doble click para localizar en el canvas"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3 flex-1">

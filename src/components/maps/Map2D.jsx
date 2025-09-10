@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAppContext } from '../../context/AppContext';
+import LayerManager from './LayerManager';
 
 // === ICONS (for equipment types) ===
 const ICONS = {
@@ -52,7 +53,7 @@ const LAYERS = {
 };
 
 // === COMPONENT: Resizable and Draggable Item ===
-const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleClick, isSelected, scale, getFinalZIndex }) => {
+const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleClick, isSelected, scale, getFinalZIndex, isLayerVisible, getLayerOpacity, isLayerLocked }) => {
     const itemRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
@@ -76,8 +77,11 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         }
         e.stopPropagation();
         
+        // Verificar si está bloqueado por la capa
+        const isLocked = isLayerLocked ? isLayerLocked('item', data.id) : data.locked;
+        
         // Si está bloqueado, no permitir selección ni interacción
-        if (data.locked) return;
+        if (isLocked) return;
 
         // Permitir selección solo si no está bloqueado
         onSelect(data);
@@ -99,7 +103,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             });
             setTempSize({ width: data.width, height: data.height });
         }
-    }, [data, onSelect]);
+    }, [data, onSelect, isLayerLocked]);
 
     const handleMouseMove = useCallback((e) => {
         if (isDragging) {
@@ -157,7 +161,8 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
     }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
     
     const selectionClass = isSelected ? `ring-4 ring-offset-2 ring-blue-500` : '';
-    const cursorClass = data.locked ? 'cursor-not-allowed' : (isDragging ? 'cursor-grabbing' : 'cursor-move');
+    const isLocked = isLayerLocked ? isLayerLocked('item', data.id) : data.locked;
+    const cursorClass = isLocked ? 'cursor-not-allowed' : (isDragging ? 'cursor-grabbing' : 'cursor-move');
     
     // Función para determinar la capa correcta
     const getLayer = () => {
@@ -168,8 +173,11 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         let baseLayer;
         let layerType;
         
+        // Verificar si está bloqueado por la capa
+        const isLocked = isLayerLocked ? isLayerLocked('item', data.id) : data.locked;
+        
         // Si está bloqueado
-        if (data.locked) {
+        if (isLocked) {
             if (isArea) {
                 baseLayer = LAYERS.LOCKED_AREAS;
                 layerType = 'locked_areas';
@@ -197,10 +205,25 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         // Aplicar orden personalizado si existe
         return getFinalZIndex ? getFinalZIndex(baseLayer, layerType, data.id) : baseLayer;
     };
+
+    // Verificar si el elemento debe ser visible según la capa
+    const shouldBeVisible = () => {
+        return isLayerVisible ? isLayerVisible('item', data.id) : true;
+    };
+
+    // Obtener opacidad del elemento según la capa
+    const getElementOpacity = () => {
+        return getLayerOpacity ? getLayerOpacity('item', data.id) : 1;
+    };
     
     // Debug: Log layer para elementos bloqueados
     if (data.locked) {
         console.log(`Elemento bloqueado ${data.id} (${data.type}): layer = ${getLayer()}, isSelected = ${isSelected}`);
+    }
+
+    // No renderizar si la capa no está visible
+    if (!shouldBeVisible()) {
+        return null;
     }
 
     return (
@@ -214,6 +237,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
                 height: `${isResizing ? tempSize.height : data.height}px`,
                 zIndex: getLayer(),
                 position: 'absolute',
+                opacity: getElementOpacity(),
                 willChange: (isDragging || isResizing) ? 'transform' : 'auto',
                 transition: (isDragging || isResizing) ? 'none' : 'all 0.1s ease-out',
             }}
@@ -221,7 +245,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             onClick={(e) => {
                 e.stopPropagation();
                 // Solo permitir selección si no está bloqueado
-                if (!data.locked) {
+                if (!isLocked) {
                     onSelect(data);
                 }
             }}
@@ -229,12 +253,12 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             onDoubleClick={handleDoubleClick}
         >
             {children}
-            {data.locked && (
-                <div className="absolute top-1.5 left-1.5 p-1 bg-black/30 rounded-full flex items-center justify-center" title="Área bloqueada - Clic derecho para ver propiedades">
+            {isLocked && (
+                <div className="absolute top-1.5 left-1.5 p-1 bg-black/30 rounded-full flex items-center justify-center" title="Elemento bloqueado - Clic derecho para ver propiedades">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                 </div>
             )}
-            {isSelected && !data.locked && (
+            {isSelected && !isLocked && (
                  <div
                     className="absolute bottom-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize -mr-2 -mb-2"
                     onMouseDown={(e) => handleMouseDown(e, 'resize')}
@@ -373,7 +397,7 @@ const LayersPanel = ({ floors, activeFloorId, onToggleLayer, onSelectItem, reset
     };
 
     return (
-        <div className="w-80 bg-white border-l border-gray-200 p-4 overflow-y-auto max-h-[500px]">
+        <div className="w-80 bg-white border-l border-gray-200 p-4 overflow-y-auto h-full flex flex-col">
             <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-700">Capas</h3>
                 <div className="flex items-center space-x-2">
@@ -396,7 +420,7 @@ const LayersPanel = ({ floors, activeFloorId, onToggleLayer, onSelectItem, reset
                 </div>
             </div>
             
-            <div className="space-y-1">
+            <div className="space-y-1 flex-1 overflow-y-auto">
                 {sortedItems.map((item, index) => {
                     const currentZIndex = itemZIndex[item.id] || 0;
                     
@@ -502,9 +526,9 @@ const PropertiesPanel = ({ selectedItem, onUpdate, onDelete, availableEquipos = 
     const itemTypeDisplay = { area: 'Área', equipment: 'Equipo' };
 
     return (
-        <div className="w-80 bg-white border-l border-gray-200 p-4 overflow-y-auto max-h-[500px]">
+        <div className="w-80 bg-white border-l border-gray-200 p-4 overflow-y-auto h-full flex flex-col">
             <h3 className="text-xl font-bold text-gray-800 mb-6 border-b pb-2">Editar {itemTypeDisplay[selectedItem.type]}</h3>
-            <div className="space-y-4">
+            <div className="space-y-4 flex-1">
                 <div>
                     <label className="block text-sm font-medium text-gray-600 mb-1">Código Interno</label>
                     <input type="text" name="name" value={selectedItem.name} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md"/>
@@ -589,22 +613,7 @@ const PropertiesPanel = ({ selectedItem, onUpdate, onDelete, availableEquipos = 
                     <div><label className="block text-sm">Pos Y</label><input type="number" name="y" value={Math.round(selectedItem.y)} onChange={handleNumericChange} className="w-full p-2 border rounded"/></div>
                 </div>
             </div>
-            <div className="mt-8 pt-4 border-t space-y-3">
-                <button 
-                    onClick={() => onUpdate(selectedItem.id, { locked: !selectedItem.locked })}
-                    className={`w-full font-bold py-2 px-4 rounded-md transition-colors flex items-center justify-center gap-2 ${
-                        selectedItem.locked 
-                        ? 'bg-yellow-500 text-white hover:bg-yellow-600' 
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                >
-                    {selectedItem.locked ? 
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
-                        :
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                    }
-                    {selectedItem.locked ? 'Desbloquear' : 'Bloquear'}
-                </button>
+            <div className="mt-auto pt-4 border-t space-y-3">
                  <button onClick={() => onDelete(selectedItem.id)} className="w-full bg-red-500 text-white font-bold py-2 px-4 rounded-md hover:bg-red-600">Eliminar Elemento</button>
             </div>
         </div>
@@ -624,6 +633,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     const [itemZIndex, setItemZIndex] = useState({}); // z-index individual por item
     const [draggedItem, setDraggedItem] = useState(null);
     const [dragOverItem, setDragOverItem] = useState(null);
+    const [layers, setLayers] = useState({});
+    const [selectedLayer, setSelectedLayer] = useState(null);
     const { activeCompany } = useAppContext();
 
     const isPanning = useRef(false);
@@ -978,13 +989,169 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         console.log('itemZIndex updated:', itemZIndex);
     }, [itemZIndex]);
 
+    // Funciones para gestionar capas
+    const handleLayerUpdate = useCallback((layerId, updates) => {
+        setLayers(prev => ({
+            ...prev,
+            [layerId]: { ...prev[layerId], ...updates }
+        }));
+    }, []);
+
+    const handleLayerReorder = useCallback((layerId, direction, targetLayerId = null) => {
+        setLayers(prev => {
+            const layerEntries = Object.entries(prev);
+            const currentIndex = layerEntries.findIndex(([id]) => id === layerId);
+            
+            if (currentIndex === -1) return prev;
+            
+            let newIndex;
+            if (direction === 'up') {
+                newIndex = Math.max(0, currentIndex - 1);
+            } else if (direction === 'down') {
+                newIndex = Math.min(layerEntries.length - 1, currentIndex + 1);
+            } else if (direction === 'move' && targetLayerId) {
+                const targetIndex = layerEntries.findIndex(([id]) => id === targetLayerId);
+                newIndex = targetIndex;
+            } else {
+                return prev;
+            }
+            
+            // Reordenar array
+            const newEntries = [...layerEntries];
+            const [movedLayer] = newEntries.splice(currentIndex, 1);
+            newEntries.splice(newIndex, 0, movedLayer);
+            
+            // Actualizar z-index
+            const updatedEntries = newEntries.map(([id, layer], index) => [
+                id, 
+                { ...layer, zIndex: index }
+            ]);
+            
+            return Object.fromEntries(updatedEntries);
+        });
+    }, []);
+
+    const handleLayerSelect = useCallback((layerId) => {
+        setSelectedLayer(layerId);
+    }, []);
+
+    const handleLayerDelete = useCallback((layerId) => {
+        if (layerId.startsWith('custom-')) {
+            setLayers(prev => {
+                const newLayers = { ...prev };
+                delete newLayers[layerId];
+                return newLayers;
+            });
+        }
+    }, []);
+
+    const handleLayerCreate = useCallback(() => {
+        const newLayerId = `custom-${Date.now()}`;
+        const maxZIndex = Math.max(...Object.values(layers).map(layer => layer.zIndex));
+        
+        setLayers(prev => ({
+            ...prev,
+            [newLayerId]: {
+                visible: true,
+                locked: false,
+                opacity: 1,
+                zIndex: maxZIndex + 1,
+                name: 'Nueva Capa',
+                elementCount: 0,
+                lastModified: new Date().toLocaleString(),
+                type: 'custom'
+            }
+        }));
+    }, [layers]);
+
+
     // Función para obtener el z-index final de un elemento
     const getFinalZIndex = useCallback((baseLayer, layerType, itemId) => {
         const customZIndex = itemZIndex[itemId] || 0;
-        const finalZIndex = baseLayer + customZIndex;
-        console.log(`getFinalZIndex: ${itemId} = ${baseLayer} + ${customZIndex} = ${finalZIndex}`);
+        const itemLayerId = `item_${itemId}`;
+        const layerZIndex = layers[itemLayerId]?.zIndex || 0;
+        const finalZIndex = layerZIndex + customZIndex;
+        console.log(`getFinalZIndex: ${itemId} = ${layerZIndex} + ${customZIndex} = ${finalZIndex}`);
         return finalZIndex;
-    }, [itemZIndex]);
+    }, [itemZIndex, layers]);
+
+    // Función para verificar si una capa está visible
+    const isLayerVisible = useCallback((layerType, itemId = null) => {
+        if (itemId) {
+            const itemLayerId = `item_${itemId}`;
+            const isVisible = layers[itemLayerId]?.visible !== false;
+            return isVisible;
+        }
+        return true;
+    }, [layers]);
+
+    // Función para obtener la opacidad de una capa
+    const getLayerOpacity = useCallback((layerType, itemId = null) => {
+        if (itemId) {
+            const itemLayerId = `item_${itemId}`;
+            const opacity = layers[itemLayerId]?.opacity || 1;
+            return opacity;
+        }
+        return 1;
+    }, [layers]);
+
+    // Función para verificar si un elemento está bloqueado según su capa
+    const isLayerLocked = useCallback((layerType, itemId = null) => {
+        if (itemId) {
+            const itemLayerId = `item_${itemId}`;
+            return layers[itemLayerId]?.locked || false;
+        }
+        return false;
+    }, [layers]);
+
+    // Crear capas individuales para cada elemento
+    const updateLayersForItems = useCallback(() => {
+        const currentFloor = floors.find(f => f.id === activeFloorId);
+        if (currentFloor && currentFloor.items) {
+            setLayers(prevLayers => {
+                const newLayers = { ...prevLayers };
+                
+                // Crear capas para elementos existentes
+                currentFloor.items.forEach(item => {
+                    const layerId = `item_${item.id}`;
+                    if (!newLayers[layerId]) {
+                        newLayers[layerId] = {
+                            visible: true,
+                            locked: false,
+                            opacity: 1,
+                            zIndex: 5 + item.id,
+                            lastModified: new Date().toLocaleString(),
+                            type: 'item',
+                            itemId: item.id,
+                            itemType: item.type,
+                            itemName: item.name || `Elemento ${item.id}`
+                        };
+                    }
+                });
+                
+                // Limpiar capas de elementos que ya no existen
+                const itemIds = currentFloor.items.map(item => `item_${item.id}`);
+                Object.keys(newLayers).forEach(layerId => {
+                    if (layerId.startsWith('item_') && !itemIds.includes(layerId)) {
+                        delete newLayers[layerId];
+                    }
+                });
+                
+                return newLayers;
+            });
+        }
+    }, [floors, activeFloorId]);
+
+    // Llamar a updateLayersForItems cuando cambien los elementos
+    useEffect(() => {
+        updateLayersForItems();
+    }, [updateLayersForItems]);
+
+    // Forzar re-render cuando cambien las capas
+    useEffect(() => {
+        // Este efecto fuerza el re-render de los elementos cuando cambian las capas
+        console.log('Layers changed, forcing re-render');
+    }, [layers]);
 
     // Update equipos when items change
     const updateEquipoPosition = useCallback(async (itemId, newProps) => {
@@ -1298,7 +1465,19 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                          style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`, transformOrigin: 'top left' }}>
                         
                         {itemsToRender.map(item => (
-                             <DraggableResizableItem key={item.id} data={item} onUpdate={handleUpdateItem} onSelect={handleSelect} onDoubleClick={handleDoubleClick} isSelected={selectedId === item.id} scale={transform.scale} getFinalZIndex={getFinalZIndex}>
+                             <DraggableResizableItem 
+                                key={item.id} 
+                                data={item} 
+                                onUpdate={handleUpdateItem} 
+                                onSelect={handleSelect} 
+                                onDoubleClick={handleDoubleClick} 
+                                isSelected={selectedId === item.id} 
+                                scale={transform.scale} 
+                                getFinalZIndex={getFinalZIndex}
+                                isLayerVisible={isLayerVisible}
+                                getLayerOpacity={getLayerOpacity}
+                                isLayerLocked={isLayerLocked}
+                            >
                                 {item.type === 'area' ? 
                                     <Area data={item} isSelected={selectedId === item.id} /> : 
                                     <Equipment data={item} isSelected={selectedId === item.id} />
@@ -1331,26 +1510,25 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                         >
                             Capas
                         </button>
-          </div>
+                      </div>
                     
                     {/* Contenido del panel */}
                     <div className="flex-1 overflow-hidden">
                         {showLayersPanel ? (
-                        <LayersPanel 
-                            floors={floors} 
-                            activeFloorId={activeFloorId} 
-                            onToggleLayer={() => setShowLayersPanel(false)}
-                            onSelectItem={(id) => setSelectedId(id)}
-                            resetItemOrder={resetItemOrder}
-                            itemZIndex={itemZIndex}
-                            moveItemUp={moveItemUp}
-                            moveItemDown={moveItemDown}
+                        <LayerManager
+                            layers={layers}
+                            onLayerUpdate={handleLayerUpdate}
+                            onLayerReorder={handleLayerReorder}
+                            onLayerSelect={handleLayerSelect}
+                            onLayerDelete={handleLayerDelete}
+                            onLayerCreate={handleLayerCreate}
+                            selectedLayer={selectedLayer}
                         />
                         ) : (
                             <PropertiesPanel selectedItem={selectedItem} onUpdate={handleUpdateItem} onDelete={handleDeleteItem} availableEquipos={equipos}/>
                         )}
                     </div>
-          </div>
+                  </div>
             </main>
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAppContext } from '../../context/AppContext';
 import LayerManager from './LayerManager';
@@ -53,7 +53,7 @@ const LAYERS = {
 };
 
 // === COMPONENT: Resizable and Draggable Item ===
-const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleClick, isSelected, scale, getFinalZIndex, isLayerVisible, getLayerOpacity, isLayerLocked }) => {
+const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleClick, isSelected, isMultiSelected, scale, getFinalZIndex, isLayerVisible, getLayerOpacity, isLayerLocked, onMultiSelect, onMoveSelectedElements, selectedIds, floors, activeFloorId, setSelectedItemsInitialPositions }) => {
     const itemRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
@@ -61,6 +61,8 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
     const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
     const [tempPosition, setTempPosition] = useState({ x: data.x, y: data.y });
     const [tempSize, setTempSize] = useState({ width: data.width, height: data.height });
+    const animationFrameRef = useRef(null);
+    const lastMoveTime = useRef(0);
 
     // Sincronizar posiciones temporales con data cuando no estamos arrastrando
     useEffect(() => {
@@ -70,6 +72,15 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         }
     }, [data.x, data.y, data.width, data.height, isDragging, isResizing]);
 
+    // Cleanup animation frame al desmontar
+    useEffect(() => {
+        return () => {
+            if (animationFrameRef.current) {
+                cancelAnimationFrame(animationFrameRef.current);
+            }
+        };
+    }, []);
+
     const handleMouseDown = useCallback((e, actionType) => {
         // Solo preventDefault si es necesario
         if (actionType === 'drag' || actionType === 'resize') {
@@ -78,22 +89,47 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         e.stopPropagation();
         
         // Verificar si está bloqueado por la capa
-        const isLocked = isLayerLocked ? isLayerLocked('item', data.id) : data.locked;
+        const isLocked = isLayerLocked ? isLayerLocked('item', data.id) : false;
         
         // Si está bloqueado, no permitir selección ni interacción
-        if (isLocked) return;
-
-        // Permitir selección solo si no está bloqueado
-        onSelect(data);
+        if (isLocked) {
+            return;
+        }
 
         if (actionType === 'drag') {
+            // Si el elemento no está seleccionado, seleccionarlo
+            if (!isSelected) {
+                onSelect(data);
+            }
+            // Si hay selección múltiple real (más de 1 elemento), no cambiar la selección
+            // Solo iniciar el arrastre
+            
             setIsDragging(true);
             setDragStart({
                 x: e.clientX - data.x,
                 y: e.clientY - data.y
             });
             setTempPosition({ x: data.x, y: data.y });
+            
+            // Si hay selección múltiple real (más de 1 elemento), guardar las posiciones iniciales
+            if (isMultiSelected && onMoveSelectedElements && selectedIds.size > 1) {
+                const currentFloor = floors.find(f => f.id === activeFloorId);
+                if (currentFloor) {
+                    const initialPositions = new Map();
+                    currentFloor.items.forEach(item => {
+                        if (selectedIds.has(item.id)) {
+                            initialPositions.set(item.id, { x: item.x, y: item.y });
+                        }
+                    });
+                    setSelectedItemsInitialPositions(initialPositions);
+                    console.log(`Posiciones iniciales guardadas para ${initialPositions.size} elementos`);
+                }
+            }
         } else if (actionType === 'resize') {
+            // Para resize, necesitamos seleccionar el elemento si no está seleccionado
+            if (!isSelected) {
+                onSelect(data);
+            }
             setIsResizing(true);
             setResizeStart({
                 x: e.clientX,
@@ -109,7 +145,27 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         if (isDragging) {
             const newX = e.clientX - dragStart.x;
             const newY = e.clientY - dragStart.y;
-            setTempPosition({ x: newX, y: newY });
+            
+            // Si hay selección múltiple real (más de 1 elemento), mover todos los elementos seleccionados
+            if (isMultiSelected && onMoveSelectedElements && selectedIds.size > 1) {
+                // Calcular el delta desde la posición inicial del elemento que se está arrastrando
+                const deltaX = newX - data.x;
+                const deltaY = newY - data.y;
+                
+                // Actualizar la posición visual temporal inmediatamente para feedback
+                setTempPosition({ x: newX, y: newY });
+                
+                // Throttling con requestAnimationFrame para mejor rendimiento
+                if (!lastMoveTime.current) {
+                    lastMoveTime.current = requestAnimationFrame(() => {
+                        onMoveSelectedElements(deltaX, deltaY);
+                        lastMoveTime.current = null;
+                    });
+                }
+            } else {
+                // Movimiento individual - sin throttling para máxima responsividad
+                setTempPosition({ x: newX, y: newY });
+            }
         } else if (isResizing) {
             const deltaX = e.clientX - resizeStart.x;
             const deltaY = e.clientY - resizeStart.y;
@@ -117,7 +173,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             const newHeight = Math.max(50, resizeStart.height + deltaY);
             setTempSize({ width: newWidth, height: newHeight });
         }
-    }, [isDragging, isResizing, dragStart, resizeStart]);
+    }, [isDragging, isResizing, dragStart, resizeStart, isMultiSelected, onMoveSelectedElements, data.x, data.y]);
 
     const handleMouseUp = useCallback(() => {
         if (isDragging) {
@@ -161,6 +217,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
     }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
     
     const selectionClass = isSelected ? `ring-4 ring-offset-2 ring-blue-500` : '';
+    const multiSelectionClass = isMultiSelected ? `ring-2 ring-offset-1 ring-purple-400` : '';
     const isLocked = isLayerLocked ? isLayerLocked('item', data.id) : data.locked;
     const cursorClass = isLocked ? 'cursor-not-allowed' : (isDragging ? 'cursor-grabbing' : 'cursor-move');
     
@@ -203,7 +260,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         }
         
         // Aplicar orden personalizado si existe
-        return getFinalZIndex ? getFinalZIndex(baseLayer, layerType, data.id) : baseLayer;
+        return getFinalZIndex ? getFinalZIndex(data.id, data.type) : baseLayer;
     };
 
     // Verificar si el elemento debe ser visible según la capa
@@ -229,7 +286,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
     return (
         <div
             ref={itemRef}
-            className={`absolute ${cursorClass} ${selectionClass} transition-all duration-300 ease-out`}
+            className={`absolute ${cursorClass} ${selectionClass} ${multiSelectionClass} transition-all duration-300 ease-out`}
             style={{
                 left: `${isDragging ? tempPosition.x : data.x}px`,
                 top: `${isDragging ? tempPosition.y : data.y}px`,
@@ -238,17 +295,24 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
                 zIndex: getLayer(),
                 position: 'absolute',
                 opacity: getElementOpacity(),
-                willChange: (isDragging || isResizing) ? 'transform' : 'auto',
-                transition: (isDragging || isResizing) ? 'none' : 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                transform: (isDragging || isResizing) ? 'scale(1.02)' : 'scale(1)',
-                filter: (isDragging || isResizing) ? 'drop-shadow(0 10px 25px rgba(0, 0, 0, 0.15))' : 'drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1))',
+                willChange: (isDragging || isResizing) ? 'transform, left, top' : 'auto',
+                transition: (isDragging || isResizing) ? 'none' : 'all 0.2s ease-out',
+                transform: (isDragging || isResizing) ? 'scale(1.01)' : 'scale(1)',
+                filter: (isDragging || isResizing) ? 'drop-shadow(0 6px 12px rgba(0, 0, 0, 0.12))' : 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.08))',
             }}
             onMouseDown={(e) => handleMouseDown(e, 'drag')}
             onClick={(e) => {
                 e.stopPropagation();
-                // Solo permitir selección si no está bloqueado
-                if (!isLocked) {
-                    onSelect(data);
+                // Solo permitir selección si no está bloqueado y no se está arrastrando
+                if (!isLocked && !isDragging) {
+                    if (onMultiSelect) {
+                        onMultiSelect(data.id, e.ctrlKey || e.metaKey);
+                    } else {
+                        // Solo seleccionar si no está ya seleccionado
+                        if (!isSelected) {
+                            onSelect(data);
+                        }
+                    }
                 }
             }}
             onContextMenu={handleRightClick}
@@ -272,7 +336,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
 
 
 // === COMPONENT: Area ===
-const Area = ({ data, isSelected }) => {
+const Area = memo(({ data, isSelected }) => {
     const selectionClass = isSelected ? `ring-blue-500` : `shadow-md`;
     const textColor = data.textColor || 'text-gray-800';
     return (
@@ -281,7 +345,17 @@ const Area = ({ data, isSelected }) => {
             <div className={`font-bold ${textColor}`}>{data.name}</div>
         </div>
     );
-};
+}, (prevProps, nextProps) => {
+    // Comparador personalizado para evitar re-renders innecesarios
+    return (
+        prevProps.data.id === nextProps.data.id &&
+        prevProps.data.name === nextProps.data.name &&
+        prevProps.data.backgroundColor === nextProps.data.backgroundColor &&
+        prevProps.data.borderColor === nextProps.data.borderColor &&
+        prevProps.data.textColor === nextProps.data.textColor &&
+        prevProps.isSelected === nextProps.isSelected
+    );
+});
 
 // === COMPONENT: Equipment ===
 // Función para mapear estados de la BD a estados del mapa
@@ -300,7 +374,7 @@ const mapDatabaseStatusToMapStatus = (dbStatus) => {
     return statusMap[dbStatus] || 'activo';
 };
 
-const Equipment = ({ data, isSelected }) => {
+const Equipment = memo(({ data, isSelected }) => {
     const selectionClass = isSelected ? `ring-blue-500` : 'shadow-lg';
     const textColor = data.textColor || 'text-gray-700';
     const statusColors = {
@@ -338,7 +412,21 @@ const Equipment = ({ data, isSelected }) => {
             )}
         </div>
     );
-};
+}, (prevProps, nextProps) => {
+    // Comparador personalizado para evitar re-renders innecesarios
+    return (
+        prevProps.data.id === nextProps.data.id &&
+        prevProps.data.name === nextProps.data.name &&
+        prevProps.data.backgroundColor === nextProps.data.backgroundColor &&
+        prevProps.data.borderColor === nextProps.data.borderColor &&
+        prevProps.data.textColor === nextProps.data.textColor &&
+        prevProps.data.status === nextProps.data.status &&
+        prevProps.data.icon === nextProps.data.icon &&
+        prevProps.data.isEmpty === nextProps.data.isEmpty &&
+        prevProps.data.assetTag === nextProps.data.assetTag &&
+        prevProps.isSelected === nextProps.isSelected
+    );
+});
 
 
 // === COMPONENT: Layers Panel ===
@@ -617,7 +705,7 @@ const PropertiesPanel = ({ selectedItem, onUpdate, onDelete, availableEquipos = 
             </div>
             <div className="mt-auto pt-4 border-t space-y-3">
                 <div className="grid grid-cols-2 gap-2">
-                    <button 
+                <button 
                         onClick={() => copyElement(selectedItem.id)}
                         className="bg-blue-500 text-white font-bold py-2 px-3 rounded-md hover:bg-blue-600 transition-all duration-200 hover:scale-105 flex items-center justify-center gap-1"
                         title="Copiar elemento (Ctrl+C)"
@@ -643,7 +731,7 @@ const PropertiesPanel = ({ selectedItem, onUpdate, onDelete, availableEquipos = 
                             <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
                         </svg>
                         Pegar
-                    </button>
+                </button>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                     <button 
@@ -681,6 +769,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     const [floors, setFloors] = useState([]);
     const [activeFloorId, setActiveFloorId] = useState(null);
     const [selectedId, setSelectedId] = useState(null);
+    const [selectedIds, setSelectedIds] = useState(new Set());
     const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 });
     const [availableStatuses, setAvailableStatuses] = useState([]);
     const [equipos, setEquipos] = useState([]);
@@ -1121,15 +1210,54 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     }, [layers]);
 
 
-    // Función para obtener el z-index final de un elemento
-    const getFinalZIndex = useCallback((baseLayer, layerType, itemId) => {
-        const customZIndex = itemZIndex[itemId] || 0;
+    // Función para obtener el z-index final de un elemento (optimizada con memoización)
+    const getFinalZIndex = useCallback((itemId, itemType) => {
+        const baseLayer = LAYERS[itemType.toUpperCase()] || LAYERS.AREAS;
         const itemLayerId = `item_${itemId}`;
         const layerZIndex = layers[itemLayerId]?.zIndex || 0;
-        const finalZIndex = baseLayer + layerZIndex + customZIndex;
-        console.log(`getFinalZIndex: ${itemId} = ${baseLayer} + ${layerZIndex} + ${customZIndex} = ${finalZIndex}`);
-        return finalZIndex;
+        const customZIndex = itemZIndex[itemId] || 0;
+        
+        // Asegurar que todos los valores sean números
+        const base = Number(baseLayer) || 0;
+        const layer = Number(layerZIndex) || 0;
+        const custom = Number(customZIndex) || 0;
+        
+        return base + layer + custom;
     }, [itemZIndex, layers]);
+    
+    // Memoizar z-indexes para evitar recálculos innecesarios
+    const memoizedZIndexes = useMemo(() => {
+        const zIndexes = {};
+        const currentFloor = floors.find(f => f.id === activeFloorId);
+        if (currentFloor) {
+            currentFloor.items.forEach(item => {
+                zIndexes[item.id] = getFinalZIndex(item.id, item.type);
+            });
+        }
+        return zIndexes;
+    }, [floors, activeFloorId, getFinalZIndex]);
+    
+    // Viewport culling simple - solo renderizar elementos visibles
+    const visibleItems = useMemo(() => {
+        const currentFloor = floors.find(f => f.id === activeFloorId);
+        if (!currentFloor) return [];
+        
+        // Obtener dimensiones del viewport del mapa
+        const mapWidth = 1200; // Ajustar según el tamaño real del mapa
+        const mapHeight = 800;  // Ajustar según el tamaño real del mapa
+        const margin = 200; // Margen para elementos parcialmente visibles
+        
+        return currentFloor.items.filter(item => {
+            const itemRight = item.x + item.width;
+            const itemBottom = item.y + item.height;
+            
+            // Verificar si el elemento está dentro del viewport con margen
+            return item.x < mapWidth + margin && 
+                   itemRight > -margin && 
+                   item.y < mapHeight + margin && 
+                   itemBottom > -margin;
+        });
+    }, [floors, activeFloorId]);
 
     // Función para verificar si una capa está visible
     const isLayerVisible = useCallback((layerType, itemId = null) => {
@@ -1183,25 +1311,49 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         
         const currentFloor = floors.find(f => f.id === activeFloorId);
         if (currentFloor) {
-            const newItem = {
-                ...clipboard,
-                id: `item_${Date.now()}`, // Nuevo ID único
-                name: `${clipboard.name} (Copia)`,
-                x: clipboard.x + 20, // Offset adicional
-                y: clipboard.y + 20
-            };
-            
-            // Agregar el elemento al piso actual
-            const updatedFloor = {
-                ...currentFloor,
-                items: [...(currentFloor.items || []), newItem]
-            };
-            
-            setFloors(prev => prev.map(f => f.id === activeFloorId ? updatedFloor : f));
-            setSelectedId(newItem.id);
-            console.log('Elemento pegado:', newItem.name);
+            // Si hay selección múltiple, pegar todos los elementos seleccionados
+            if (selectedIds.size > 1) {
+                const selectedItems = currentFloor.items.filter(item => selectedIds.has(item.id));
+                const newItems = selectedItems.map((item, index) => ({
+                    ...item,
+                    id: `item_${Date.now()}_${index}`,
+                    name: `${item.name} (Copia)`,
+                    x: item.x + 20 + (index * 10), // Offset para evitar superposición
+                    y: item.y + 20 + (index * 10)
+                }));
+                
+                setFloors(prev => prev.map(f => 
+                    f.id === activeFloorId 
+                        ? { ...f, items: [...(f.items || []), ...newItems] }
+                        : f
+                ));
+                
+                // Seleccionar los nuevos elementos pegados
+                const newIds = new Set(newItems.map(item => item.id));
+                setSelectedIds(newIds);
+                setSelectedId(newItems[0].id);
+                
+                console.log(`${newItems.length} elementos pegados`);
+            } else {
+                // Pegado individual
+                const newItem = {
+                    ...clipboard,
+                    id: `item_${Date.now()}`,
+                    name: `${clipboard.name} (Copia)`,
+                    x: clipboard.x + 20,
+                    y: clipboard.y + 20
+                };
+                
+                setFloors(prev => prev.map(f => 
+                    f.id === activeFloorId 
+                        ? { ...f, items: [...(f.items || []), newItem] }
+                        : f
+                ));
+                setSelectedId(newItem.id);
+                console.log('Elemento pegado:', newItem.name);
+            }
         }
-    }, [clipboard, floors, activeFloorId, setFloors]);
+    }, [clipboard, floors, activeFloorId, setFloors, selectedIds]);
 
     // Función para duplicar elemento
     const duplicateElement = useCallback((itemId) => {
@@ -1211,6 +1363,88 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             pasteElement();
         }, 100);
     }, [copyElement, pasteElement]);
+
+    // Función para manejar selección múltiple
+    const handleMultiSelect = useCallback((itemId, ctrlKey) => {
+        if (ctrlKey) {
+            setSelectedIds(prev => {
+                const newSet = new Set(prev);
+                if (newSet.has(itemId)) {
+                    newSet.delete(itemId);
+                } else {
+                    newSet.add(itemId);
+                }
+                return newSet;
+            });
+            setSelectedId(itemId); // Mantener el último seleccionado como principal
+        } else {
+            setSelectedIds(new Set([itemId]));
+            setSelectedId(itemId);
+        }
+    }, []);
+
+    // Función para limpiar selección múltiple
+    const clearMultiSelect = useCallback(() => {
+        setSelectedIds(new Set());
+        setSelectedId(null);
+    }, []);
+
+    // Estado para almacenar las posiciones iniciales de los elementos seleccionados
+    const [selectedItemsInitialPositions, setSelectedItemsInitialPositions] = useState(new Map());
+
+    // Función para mover elementos seleccionados (optimizada)
+    const moveSelectedElements = useCallback((deltaX, deltaY) => {
+        if (selectedIds.size === 0) return;
+        
+        setFloors(prev => {
+            const currentFloor = prev.find(f => f.id === activeFloorId);
+            if (!currentFloor) return prev;
+
+            // Solo actualizar elementos seleccionados para mejor rendimiento
+            const updatedItems = currentFloor.items.map(item => {
+                if (selectedIds.has(item.id)) {
+                    // Usar la posición inicial + delta para evitar acumulación de errores
+                    const initialPos = selectedItemsInitialPositions.get(item.id);
+                    if (initialPos) {
+                        return {
+                            ...item,
+                            x: Math.max(0, initialPos.x + deltaX), // Evitar posiciones negativas
+                            y: Math.max(0, initialPos.y + deltaY)
+                        };
+                    } else {
+                        // Fallback: usar posición actual (sin delta para evitar problemas)
+                        console.warn(`Posición inicial no encontrada para elemento ${item.id}, usando posición actual`);
+                        return item;
+                    }
+                }
+                return item; // No cambiar elementos no seleccionados
+            });
+
+            return prev.map(f => 
+                f.id === activeFloorId 
+                    ? { ...f, items: updatedItems }
+                    : f
+            );
+        });
+    }, [selectedIds, activeFloorId, selectedItemsInitialPositions]);
+
+    // Función para eliminar elementos seleccionados
+    const deleteSelectedElements = useCallback(() => {
+        if (selectedIds.size === 0) return;
+        
+        const currentFloor = floors.find(f => f.id === activeFloorId);
+        if (!currentFloor) return;
+
+        const updatedItems = currentFloor.items.filter(item => !selectedIds.has(item.id));
+        
+        setFloors(prev => prev.map(f => 
+            f.id === activeFloorId 
+                ? { ...f, items: updatedItems }
+                : f
+        ));
+        
+        clearMultiSelect();
+    }, [selectedIds, floors, activeFloorId, setFloors, clearMultiSelect]);
 
     // Crear capas individuales para cada elemento
     const updateLayersForItems = useCallback(() => {
@@ -1255,6 +1489,11 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         updateLayersForItems();
     }, [updateLayersForItems]);
 
+    // Limpiar selección múltiple cuando cambie el piso activo
+    useEffect(() => {
+        clearMultiSelect();
+    }, [activeFloorId, clearMultiSelect]);
+
     // Atajos de teclado
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -1289,16 +1528,40 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     duplicateElement(selectedId);
                 }
             }
+            
+            // Atajo para seleccionar todo
+            if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                const currentFloor = floors.find(f => f.id === activeFloorId);
+                if (currentFloor && currentFloor.items) {
+                    const allIds = new Set(currentFloor.items.map(item => item.id));
+                    setSelectedIds(allIds);
+                    if (allIds.size > 0) {
+                        setSelectedId(Array.from(allIds)[0]);
+                    }
+                }
+            }
+            
+            // Atajo para eliminar elementos seleccionados
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                e.preventDefault();
+                if (selectedIds.size > 0) {
+                    deleteSelectedElements();
+                }
+            }
         };
 
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [selectedId, copyElement, pasteElement, duplicateElement]);
+    }, [selectedId, selectedIds, copyElement, pasteElement, duplicateElement, deleteSelectedElements, floors, activeFloorId]);
 
-    // Forzar re-render cuando cambien las capas (solo cuando realmente cambien)
+    // Forzar re-render cuando cambien las capas (optimizado)
     useEffect(() => {
-        // Este efecto fuerza el re-render de los elementos cuando cambian las capas
-        console.log('Layers changed, forcing re-render');
+        // Solo forzar re-render si realmente hay cambios significativos en las capas
+        const layerCount = Object.keys(layers).length;
+        if (layerCount > 0) {
+            setItemZIndex(prev => ({ ...prev }));
+        }
     }, [Object.keys(layers).length]);
 
     // Update equipos when items change
@@ -1470,11 +1733,20 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         }
     };
 
+    // Debouncing para actualizaciones de BD
+    const updateTimeouts = useRef({});
+
     const handleUpdateItem = useCallback(async (id, updatedData) => {
-        // Update local state
+        // Update local state immediately
         updateActiveFloorItems(items => items.map(item => item.id === id ? { ...item, ...updatedData } : item));
         
-        // Update database
+        // Clear existing timeout for this item
+        if (updateTimeouts.current[id]) {
+            clearTimeout(updateTimeouts.current[id]);
+        }
+        
+        // Set new timeout for database update (300ms debounce)
+        updateTimeouts.current[id] = setTimeout(async () => {
         try {
             const dbUpdateData = {};
             
@@ -1508,6 +1780,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         } catch (error) {
             console.error('Error updating item:', error);
         }
+        }, 300); // 300ms debounce
     }, [updateActiveFloorItems]);
 
     
@@ -1576,14 +1849,14 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     const handleMouseUpCanvas = () => isPanning.current = false;
 
     const activeFloor = floors.find(f => f.id === activeFloorId);
-    const itemsToRender = activeFloor ? activeFloor.items : [];
+    const itemsToRender = visibleItems; // Usar elementos visibles para mejor rendimiento
     const selectedItem = itemsToRender.find(item => item.id === selectedId);
 
   return (
         <div className="h-[800px] w-full bg-gray-100 flex flex-col font-sans select-none rounded-lg border">
             <header className="bg-white border-b p-3 shadow-sm flex items-center justify-between z-20">
                 <div className="flex items-center gap-4">
-                    <h1 className="text-xl font-bold">Plano de Activos</h1>
+                <h1 className="text-xl font-bold">Plano de Activos</h1>
                     {clipboard && (
                         <div className="flex items-center gap-2 bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium animate-pulse">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1593,8 +1866,34 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                             {clipboard.name} listo para pegar
                         </div>
                     )}
+                    {selectedIds.size > 1 && (
+                        <div className="flex items-center gap-2 bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm font-medium">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M9 11H5a2 2 0 0 0-2 2v3c0 1.1.9 2 2 2h4m0-7h10a2 2 0 0 1 2 2v3c0 1.1-.9 2-2 2h-4m0-7v7m0-7l-3-3m3 3l3-3"/>
+                            </svg>
+                            {selectedIds.size} elementos seleccionados
+                        </div>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
+                    {selectedIds.size > 0 && (
+                        <>
+                            <button 
+                                onClick={clearMultiSelect}
+                                className="bg-gray-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-gray-600 transition-all duration-200 hover:scale-105"
+                                title="Deseleccionar todo"
+                            >
+                                Deseleccionar
+                            </button>
+                            <button 
+                                onClick={deleteSelectedElements}
+                                className="bg-red-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-red-600 transition-all duration-200 hover:scale-105"
+                                title="Eliminar elementos seleccionados (Delete)"
+                            >
+                                Eliminar ({selectedIds.size})
+                            </button>
+                        </>
+                    )}
                     <button onClick={() => handleAddItem('area')} className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-blue-600 transition-all duration-200 hover:scale-105">Añadir Área</button>
                     <button onClick={() => handleAddItem('equipment')} className="bg-green-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-green-600 transition-all duration-200 hover:scale-105">Añadir Equipo</button>
       </div>
@@ -1631,11 +1930,18 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                                 onSelect={handleSelect} 
                                 onDoubleClick={handleDoubleClick} 
                                 isSelected={selectedId === item.id} 
+                                isMultiSelected={selectedIds.has(item.id) && selectedIds.size > 1}
                                 scale={transform.scale} 
                                 getFinalZIndex={getFinalZIndex}
                                 isLayerVisible={isLayerVisible}
                                 getLayerOpacity={getLayerOpacity}
                                 isLayerLocked={isLayerLocked}
+                                onMultiSelect={handleMultiSelect}
+                                onMoveSelectedElements={moveSelectedElements}
+                                selectedIds={selectedIds}
+                                floors={floors}
+                                activeFloorId={activeFloorId}
+                                setSelectedItemsInitialPositions={setSelectedItemsInitialPositions}
                             >
                                 {item.type === 'area' ? 
                                     <Area data={item} isSelected={selectedId === item.id} /> : 
@@ -1669,7 +1975,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                         >
                             Capas
                         </button>
-                      </div>
+          </div>
                     
                     {/* Contenido del panel */}
                     <div className="flex-1 overflow-hidden">
@@ -1696,7 +2002,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                             />
                         )}
                     </div>
-                  </div>
+          </div>
             </main>
     </div>
   );

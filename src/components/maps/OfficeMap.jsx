@@ -603,6 +603,11 @@ const OfficeMap = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // No procesar el clic si estamos arrastrando
+    if (isDraggingEquipo || isDragging) {
+      return;
+    }
+
     const rect = canvas.getBoundingClientRect();
     const x = (event.clientX - rect.left - panOffset.x) / zoom;
     const y = (event.clientY - rect.top - panOffset.y) / zoom;

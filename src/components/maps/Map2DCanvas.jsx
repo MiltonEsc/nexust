@@ -317,6 +317,11 @@ const Map2DCanvas = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // No procesar el clic si estamos arrastrando
+    if (isDragging) {
+      return;
+    }
+
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
@@ -402,7 +407,7 @@ const Map2DCanvas = ({
         }
       }
     }
-  }, [equipos, areas, onEquipoSelect, isCreatingAreaLocal, areaStart]);
+  }, [equipos, areas, onEquipoSelect, isCreatingAreaLocal, areaStart, isDragging]);
 
   // Manejar doble clic en el canvas
   const handleCanvasDoubleClick = useCallback((event) => {

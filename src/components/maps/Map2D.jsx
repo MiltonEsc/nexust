@@ -53,7 +53,7 @@ const LAYERS = {
 };
 
 // === COMPONENT: Resizable and Draggable Item ===
-const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleClick, isSelected, isMultiSelected, scale, getFinalZIndex, isLayerVisible, getLayerOpacity, isLayerLocked, onMultiSelect, onMoveSelectedElements, selectedIds, floors, activeFloorId, setSelectedItemsInitialPositions }) => {
+const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleClick, isSelected, isMultiSelected, scale, getFinalZIndex, isLayerVisible, getLayerOpacity, isLayerLocked, onMultiSelect, onMoveSelectedElements, selectedIds, floors, activeFloorId, setSelectedItemsInitialPositions, isSpacePressed }) => {
     const itemRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
@@ -84,6 +84,11 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
     }, []);
 
     const handleMouseDown = useCallback((e, actionType, direction = null) => {
+        // Si space está presionado, no manejar interacciones de elementos
+        if (isSpacePressed) {
+            return;
+        }
+        
         // Solo preventDefault si es necesario
         if (actionType === 'drag' || actionType.startsWith('resize')) {
             e.preventDefault();
@@ -155,7 +160,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             setTempSize({ width: data.width, height: data.height });
             setTempPosition({ x: data.x, y: data.y });
         }
-    }, [data, onSelect, isLayerLocked]);
+    }, [data, onSelect, isLayerLocked, isSpacePressed]);
 
     const handleMouseMove = useCallback((e) => {
         if (isDragging) {
@@ -882,6 +887,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     const [selectedId, setSelectedId] = useState(null);
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 });
+    const [isSpacePressed, setIsSpacePressed] = useState(false);
+    const [isSpacePanning, setIsSpacePanning] = useState(false);
     const [availableStatuses, setAvailableStatuses] = useState([]);
     const [equipos, setEquipos] = useState([]);
     const [showLayersPanel, setShowLayersPanel] = useState(false);
@@ -1772,11 +1779,32 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     deleteSelectedElements();
                 }
             }
+            
+            // Tecla space para modo panning
+            if (e.key === ' ' || e.code === 'Space') {
+                e.preventDefault();
+                if (!isSpacePressed) {
+                    setIsSpacePressed(true);
+                }
+            }
+        };
+
+        const handleKeyUp = (e) => {
+            // Soltar tecla space
+            if (e.key === ' ' || e.code === 'Space') {
+                e.preventDefault();
+                setIsSpacePressed(false);
+                setIsSpacePanning(false);
+            }
         };
 
         document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [selectedId, selectedIds, copyElement, pasteElement, duplicateElement, deleteSelectedElements, floors, activeFloorId]);
+        document.addEventListener('keyup', handleKeyUp);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+            document.removeEventListener('keyup', handleKeyUp);
+        };
+    }, [selectedId, selectedIds, copyElement, pasteElement, duplicateElement, deleteSelectedElements, floors, activeFloorId, isSpacePressed]);
 
     // Forzar re-render cuando cambien las capas (optimizado)
     useEffect(() => {
@@ -2087,7 +2115,14 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
     const handleMouseDownCanvas = (e) => {
         e.stopPropagation();
-        if (e.buttons === 1) { // Left click
+        
+        // Si space está presionado, activar panning con cualquier botón del mouse
+        if (isSpacePressed) {
+            e.preventDefault();
+            setIsSpacePanning(true);
+            isPanning.current = true;
+            lastMousePos.current = { x: e.clientX, y: e.clientY };
+        } else if (e.buttons === 1) { // Left click normal (sin space)
             isPanning.current = true;
             lastMousePos.current = { x: e.clientX, y: e.clientY };
         }
@@ -2102,7 +2137,10 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         lastMousePos.current = { x: e.clientX, y: e.clientY };
     };
 
-    const handleMouseUpCanvas = () => isPanning.current = false;
+    const handleMouseUpCanvas = () => {
+        isPanning.current = false;
+        setIsSpacePanning(false);
+    };
 
     const activeFloor = floors.find(f => f.id === activeFloorId);
     // TEMPORAL: Deshabilitar viewport culling para debug
@@ -2195,7 +2233,11 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     onMouseUp={handleMouseUpCanvas}
                     onMouseLeave={handleMouseUpCanvas} 
                     onClick={(e) => { if(e.target.id === "canvas-container" || e.target.id === "canvas-content") setSelectedId(null)}}
-                    style={{ backgroundImage: 'radial-gradient(#d1d5db 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+                    style={{ 
+                        backgroundImage: 'radial-gradient(#d1d5db 1px, transparent 1px)', 
+                        backgroundSize: '20px 20px',
+                        cursor: isSpacePressed ? (isSpacePanning ? 'grabbing' : 'grab') : 'default'
+                    }}>
                     
                     <div id="canvas-content" className="absolute top-0 left-0"
                          style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`, transformOrigin: 'top left' }}>
@@ -2220,6 +2262,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                                 floors={floors}
                                 activeFloorId={activeFloorId}
                                 setSelectedItemsInitialPositions={setSelectedItemsInitialPositions}
+                                isSpacePressed={isSpacePressed}
                             >
                                 {item.type === 'area' ? 
                                     <Area data={item} isSelected={selectedId === item.id} /> : 

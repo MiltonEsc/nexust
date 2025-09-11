@@ -993,14 +993,23 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     // Load map items from database
     const loadMapItems = useCallback(async (floorId) => {
         try {
+            console.log('Cargando elementos para piso:', floorId, 'empresa:', activeCompany?.id);
+            
+            // Cargar elementos filtrados por piso y empresa
             const { data: mapItems, error } = await supabase
                 .from('map_items')
                 .select('*')
-                .eq('floor_id', floorId);
+                .eq('floor_id', floorId)
+                .eq('company_id', activeCompany?.id);
 
             if (error) {
                 console.error('Error loading map items:', error);
                 return [];
+            }
+
+            console.log(`Elementos encontrados en BD para piso ${floorId}:`, mapItems?.length || 0);
+            if (mapItems && mapItems.length > 0) {
+                console.log('Elementos cargados:', mapItems.map(item => ({ id: item.id, name: item.name, type: item.item_type })));
             }
 
             if (!mapItems || mapItems.length === 0) {
@@ -1035,7 +1044,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             console.error('Error loading map items:', error);
             return [];
         }
-    }, []);
+    }, [activeCompany?.id]);
 
     // Convert equipos data to floor plan items (for selector only)
     const convertEquiposToItems = useCallback((equiposData) => {
@@ -1094,16 +1103,20 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     useEffect(() => {
         const loadInitialData = async () => {
             try {
+                console.log('Cargando datos iniciales para empresa:', activeCompany?.id);
                 // First, check if we have any floors
                 const { data: existingFloors, error: floorsError } = await supabase
                     .from('map_floors')
                     .select('*')
+                    .eq('company_id', activeCompany?.id)
                     .order('created_at', { ascending: true });
 
                 if (floorsError) {
                     console.error('Error loading floors:', floorsError);
                     return;
                 }
+                
+                console.log(`Pisos encontrados para empresa ${activeCompany?.id}:`, existingFloors?.length || 0);
 
                 if (existingFloors && existingFloors.length > 0) {
                     // Load items for each floor
@@ -1529,61 +1542,148 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     }, [floors, activeFloorId]);
 
     // Función para pegar elemento
-    const pasteElement = useCallback(() => {
+    const pasteElement = useCallback(async () => {
         if (!clipboard) return;
+        
+        console.log('=== INICIANDO PEGADO DE ELEMENTO ===');
+        console.log('activeCompany:', activeCompany);
+        console.log('activeFloorId:', activeFloorId);
+        
+        if (!activeCompany?.id) {
+            console.error('ERROR: No hay empresa activa para pegar');
+            alert('Error: No hay empresa activa. Por favor, selecciona una empresa.');
+            return;
+        }
+        
+        if (!activeFloorId) {
+            console.error('ERROR: No hay piso activo para pegar');
+            alert('Error: No hay piso activo. Por favor, crea o selecciona un piso.');
+            return;
+        }
         
         const currentFloor = floors.find(f => f.id === activeFloorId);
         if (currentFloor) {
-            // Si hay selección múltiple, pegar todos los elementos seleccionados
-            if (selectedIds.size > 1) {
-                const selectedItems = currentFloor.items.filter(item => selectedIds.has(item.id));
-                const newItems = selectedItems.map((item, index) => ({
-                    ...item,
-                    id: `item_${Date.now()}_${index}`,
-                    name: `${item.name} (Copia)`,
-                    x: item.x + 20 + (index * 10), // Offset para evitar superposición
-                    y: item.y + 20 + (index * 10)
-                }));
+            try {
+                // Si hay selección múltiple, pegar todos los elementos seleccionados
+                if (selectedIds.size > 1) {
+                    const selectedItems = currentFloor.items.filter(item => selectedIds.has(item.id));
+                    const newItems = selectedItems.map((item, index) => ({
+                        ...item,
+                        id: `item_${Date.now()}_${index}`,
+                        name: `${item.name} (Copia)`,
+                        x: item.x + 20 + (index * 10), // Offset para evitar superposición
+                        y: item.y + 20 + (index * 10)
+                    }));
+                    
+                    // Guardar todos los elementos en la base de datos
+                    console.log(`Guardando ${newItems.length} elementos pegados en BD...`);
+                    const insertPromises = newItems.map(async (item) => {
+                        const { error } = await supabase
+                            .from('map_items')
+                            .insert({
+                                id: item.id,
+                                floor_id: activeFloorId,
+                                company_id: activeCompany.id,
+                                item_type: item.type,
+                                name: item.name,
+                                x: item.x,
+                                y: item.y,
+                                width: item.width,
+                                height: item.height,
+                                background_color: item.backgroundColor,
+                                border_color: item.borderColor,
+                                text_color: item.textColor,
+                                is_locked: item.locked,
+                                is_empty: item.isEmpty || false,
+                                asset_tag: item.assetTag,
+                                status: item.status,
+                                icon: item.icon
+                            });
+                        
+                        if (error) {
+                            console.error(`Error guardando elemento ${item.id}:`, error);
+                            throw error;
+                        }
+                        return item;
+                    });
+                    
+                    await Promise.all(insertPromises);
+                    
+                    setFloors(prev => prev.map(f => 
+                        f.id === activeFloorId 
+                            ? { ...f, items: [...(f.items || []), ...newItems] }
+                            : f
+                    ));
+                    
+                    // Seleccionar los nuevos elementos pegados
+                    const newIds = new Set(newItems.map(item => item.id));
+                    setSelectedIds(newIds);
+                    setSelectedId(newItems[0].id);
+                    
+                    console.log(`✅ ${newItems.length} elementos pegados y guardados en BD`);
+                } else {
+                    // Pegado individual
+                    const newItem = {
+                        ...clipboard,
+                        id: `item_${Date.now()}`,
+                        name: `${clipboard.name} (Copia)`,
+                        x: clipboard.x + 20,
+                        y: clipboard.y + 20
+                    };
+                    
+                    // Guardar elemento en la base de datos
+                    console.log('Guardando elemento pegado en BD:', newItem);
+                    const { error } = await supabase
+                        .from('map_items')
+                        .insert({
+                            id: newItem.id,
+                            floor_id: activeFloorId,
+                            company_id: activeCompany.id,
+                            item_type: newItem.type,
+                            name: newItem.name,
+                            x: newItem.x,
+                            y: newItem.y,
+                            width: newItem.width,
+                            height: newItem.height,
+                            background_color: newItem.backgroundColor,
+                            border_color: newItem.borderColor,
+                            text_color: newItem.textColor,
+                            is_locked: newItem.locked,
+                            is_empty: newItem.isEmpty || false,
+                            asset_tag: newItem.assetTag,
+                            status: newItem.status,
+                            icon: newItem.icon
+                        });
+                    
+                    if (error) {
+                        console.error('Error guardando elemento pegado:', error);
+                        alert(`Error al guardar elemento pegado: ${error.message}`);
+                        return;
+                    }
+                    
+                    setFloors(prev => prev.map(f => 
+                        f.id === activeFloorId 
+                            ? { ...f, items: [...(f.items || []), newItem] }
+                            : f
+                    ));
+                    setSelectedId(newItem.id);
+                    console.log('✅ Elemento pegado y guardado en BD:', newItem.name);
+                }
                 
-                setFloors(prev => prev.map(f => 
-                    f.id === activeFloorId 
-                        ? { ...f, items: [...(f.items || []), ...newItems] }
-                        : f
-                ));
-                
-                // Seleccionar los nuevos elementos pegados
-                const newIds = new Set(newItems.map(item => item.id));
-                setSelectedIds(newIds);
-                setSelectedId(newItems[0].id);
-                
-                console.log(`${newItems.length} elementos pegados`);
-            } else {
-                // Pegado individual
-                const newItem = {
-                    ...clipboard,
-                    id: `item_${Date.now()}`,
-                    name: `${clipboard.name} (Copia)`,
-                    x: clipboard.x + 20,
-                    y: clipboard.y + 20
-                };
-                
-                setFloors(prev => prev.map(f => 
-                    f.id === activeFloorId 
-                        ? { ...f, items: [...(f.items || []), newItem] }
-                        : f
-                ));
-                setSelectedId(newItem.id);
-                console.log('Elemento pegado:', newItem.name);
+                console.log('=== PEGADO DE ELEMENTO COMPLETADO ===');
+            } catch (error) {
+                console.error('❌ Error en pegado:', error);
+                alert(`Error al pegar elemento: ${error.message}`);
             }
         }
-    }, [clipboard, floors, activeFloorId, setFloors, selectedIds]);
+    }, [clipboard, floors, activeFloorId, setFloors, selectedIds, activeCompany, supabase]);
 
     // Función para duplicar elemento
-    const duplicateElement = useCallback((itemId) => {
+    const duplicateElement = useCallback(async (itemId) => {
         copyElement(itemId);
         // Pequeño delay para asegurar que el clipboard se actualice
-        setTimeout(() => {
-            pasteElement();
+        setTimeout(async () => {
+            await pasteElement();
         }, 100);
     }, [copyElement, pasteElement]);
 
@@ -1659,12 +1759,33 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     }, [selectedIds, activeFloorId, selectedItemsInitialPositions]);
 
     // Función para eliminar elementos seleccionados
-    const deleteSelectedElements = useCallback(() => {
+    const deleteSelectedElements = useCallback(async () => {
         if (selectedIds.size === 0) return;
         
         const currentFloor = floors.find(f => f.id === activeFloorId);
         if (!currentFloor) return;
 
+        const idsToDelete = Array.from(selectedIds);
+        console.log('Eliminando elementos seleccionados de BD:', idsToDelete);
+
+        try {
+            // Eliminar de la base de datos
+            const { error } = await supabase
+                .from('map_items')
+                .delete()
+                .in('id', idsToDelete)
+                .eq('company_id', activeCompany?.id);
+
+            if (error) {
+                console.error('Error deleting selected items from database:', error);
+            } else {
+                console.log('Elementos seleccionados eliminados exitosamente de BD:', idsToDelete);
+            }
+        } catch (error) {
+            console.error('Error deleting selected items:', error);
+        }
+
+        // Eliminar del estado local
         const updatedItems = currentFloor.items.filter(item => !selectedIds.has(item.id));
         
         setFloors(prev => prev.map(f => 
@@ -1673,8 +1794,18 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 : f
         ));
         
+        // Eliminar las capas correspondientes
+        setLayers(prev => {
+            const newLayers = { ...prev };
+            idsToDelete.forEach(id => {
+                const itemLayerId = `item_${id}`;
+                delete newLayers[itemLayerId];
+            });
+            return newLayers;
+        });
+        
         clearMultiSelect();
-    }, [selectedIds, floors, activeFloorId, setFloors, clearMultiSelect]);
+    }, [selectedIds, floors, activeFloorId, setFloors, clearMultiSelect, activeCompany?.id]);
 
     // Crear capas individuales para cada elemento
     const updateLayersForItems = useCallback(() => {
@@ -1919,6 +2050,23 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
     const handleAddItem = async (type) => {
         try {
+            console.log('=== INICIANDO CREACIÓN DE ELEMENTO ===');
+            console.log('Tipo:', type);
+            console.log('activeCompany:', activeCompany);
+            console.log('activeFloorId:', activeFloorId);
+            
+            if (!activeCompany?.id) {
+                console.error('ERROR: No hay empresa activa');
+                alert('Error: No hay empresa activa. Por favor, selecciona una empresa.');
+                return;
+            }
+            
+            if (!activeFloorId) {
+                console.error('ERROR: No hay piso activo');
+                alert('Error: No hay piso activo. Por favor, crea o selecciona un piso.');
+                return;
+            }
+            
             // Calcular posición central visible del canvas
             const centerPosition = getVisibleCenterPosition();
             
@@ -1954,11 +2102,22 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 };
 
             // Save to database
-            const { error } = await supabase
+            console.log('Guardando elemento en BD:', {
+                id: newItem.id,
+                floor_id: activeFloorId,
+                company_id: activeCompany?.id,
+                type: newItem.type,
+                name: newItem.name
+            });
+            
+            // Guardar elemento en base de datos
+            console.log('Ejecutando inserción en BD...');
+            const insertResult = await supabase
                 .from('map_items')
                 .insert({
                     id: newItem.id,
                     floor_id: activeFloorId,
+                    company_id: activeCompany?.id,
                     item_type: newItem.type,
                     name: newItem.name,
                     x: newItem.x,
@@ -1975,8 +2134,14 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     icon: newItem.icon
                 });
 
-            if (error) {
-                console.error('Error saving item to database:', error);
+            console.log('Resultado completo de la inserción:', insertResult);
+
+            if (insertResult.error) {
+                console.error('Error saving item to database:', insertResult.error);
+                alert(`Error al guardar en BD: ${insertResult.error.message}`);
+                return;
+            } else {
+                console.log('✅ Elemento guardado exitosamente en BD:', newItem.id);
             }
 
             // Update local state
@@ -2010,9 +2175,11 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             });
             
             // Feedback visual en consola
-            console.log(`${type === 'area' ? 'Área' : 'Equipo'} "${newItem.name}" creado en posición (${newItem.x}, ${newItem.y})`);
+            console.log(`✅ ${type === 'area' ? 'Área' : 'Equipo'} "${newItem.name}" creado completamente`);
+            console.log('=== CREACIÓN DE ELEMENTO COMPLETADA ===');
         } catch (error) {
-            console.error('Error adding item:', error);
+            console.error('❌ Error adding item:', error);
+            alert(`Error al crear elemento: ${error.message}`);
         }
     };
 
@@ -2069,19 +2236,33 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     
     const handleDeleteItem = async (id) => {
         try {
-            // Eliminar de la base de datos si existe
+            console.log('Eliminando elemento de BD:', { id, company_id: activeCompany?.id });
+            
+            // Eliminar de la base de datos con filtro por empresa
             const { error } = await supabase
                 .from('map_items')
                 .delete()
-                .eq('id', id);
+                .eq('id', id)
+                .eq('company_id', activeCompany?.id);
             
             if (error) {
                 console.error('Error deleting item from database:', error);
+            } else {
+                console.log('Elemento eliminado exitosamente de BD:', id);
             }
             
             // Eliminar del estado local
             updateActiveFloorItems(items => items.filter(item => item.id !== id));
             setSelectedId(null);
+            
+            // Eliminar la capa correspondiente
+            const itemLayerId = `item_${id}`;
+            setLayers(prev => {
+                const newLayers = { ...prev };
+                delete newLayers[itemLayerId];
+                return newLayers;
+            });
+            
         } catch (error) {
             console.error('Error deleting item:', error);
             // Aún así eliminar del estado local

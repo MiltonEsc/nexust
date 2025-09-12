@@ -342,7 +342,9 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         }
         
         // Aplicar orden personalizado si existe
-        return getFinalZIndex ? getFinalZIndex(data.id, data.type) : baseLayer;
+        const finalZIndex = getFinalZIndex ? getFinalZIndex(data.id, data.type) : baseLayer;
+        console.log(`Elemento ${data.id} (${data.type}): zIndex=${finalZIndex}`);
+        return finalZIndex;
     };
 
     // Verificar si el elemento debe ser visible según la capa
@@ -372,7 +374,12 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
 
     return (
         <div
-            ref={itemRef}
+            ref={(el) => {
+                itemRef.current = el;
+                if (el) {
+                    console.log(`Elemento ${data.id} DOM zIndex:`, el.style.zIndex);
+                }
+            }}
             className={`absolute ${cursorClass} ${selectionClass} ${multiSelectionClass} transition-all duration-300 ease-out`}
             style={{
                 left: `${(isDragging || isResizing) ? tempPosition.x : data.x}px`,
@@ -1046,6 +1053,108 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         }
     }, [activeCompany?.id]);
 
+    // Cargar orden de capas desde la base de datos
+    const loadLayerOrder = useCallback(async (floorId) => {
+        if (!floorId || !activeCompany?.id) return;
+        
+        try {
+            console.log('Cargando orden de capas desde BD para piso:', floorId);
+            const { data, error } = await supabase
+                .from('map_layers_order')
+                .select('*')
+                .eq('floor_id', floorId)
+                .eq('company_id', activeCompany.id)
+                .order('z_index', { ascending: true });
+
+            if (error) {
+                console.error('Error loading layer order:', error);
+                return;
+            }
+
+            if (data && data.length > 0) {
+                // Aplicar el orden guardado a todas las capas
+                setLayers(prev => {
+                    const newLayers = { ...prev };
+                    data.forEach(orderItem => {
+                        if (newLayers[orderItem.layer_id]) {
+                            newLayers[orderItem.layer_id] = {
+                                ...newLayers[orderItem.layer_id],
+                                zIndex: orderItem.z_index
+                            };
+                        }
+                    });
+                    console.log('Orden de capas aplicado desde BD:', newLayers);
+                    return newLayers;
+                });
+            }
+        } catch (error) {
+            console.error('Error in loadLayerOrder:', error);
+        }
+    }, [activeCompany?.id]);
+
+    // Guardar orden de capas en la base de datos
+    const saveLayerOrderToDatabase = useCallback(async (layersToSave, floorId) => {
+        if (!floorId || !activeCompany?.id) return;
+        
+        try {
+            console.log('Guardando orden de capas en BD:', layersToSave);
+            console.log('Tipo de layersToSave:', typeof layersToSave);
+            console.log('Keys de layersToSave:', Object.keys(layersToSave));
+            console.log('Valores de layersToSave:', Object.values(layersToSave));
+            
+            // Filtrar capas válidas (todas las capas individuales)
+            const validLayers = Object.entries(layersToSave).map(([layerId, layer]) => ({
+                id: layerId,
+                zIndex: layer.zIndex,
+                name: layer.itemName || layer.name || 'Sin nombre'
+            })).filter(layer => {
+                // Validar que layer y layer.id existan
+                if (!layer || !layer.id || typeof layer.id !== 'string') {
+                    console.warn('Layer inválida encontrada:', layer);
+                    return false;
+                }
+                
+                // Incluir todas las capas individuales
+                return true;
+            });
+            
+            console.log('Capas a guardar:', validLayers.map(l => l.id));
+            
+            if (validLayers.length === 0) {
+                console.log('No hay capas para guardar');
+                return;
+            }
+            
+            // Convertir layers a formato de BD (solo orden)
+            const orderArray = validLayers.map(layer => ({
+                floor_id: floorId,
+                company_id: activeCompany.id,
+                layer_id: layer.id,
+                z_index: layer.zIndex
+            }));
+
+            // Eliminar orden existente para este piso
+            await supabase
+                .from('map_layers_order')
+                .delete()
+                .eq('floor_id', floorId)
+                .eq('company_id', activeCompany.id);
+
+            // Insertar nuevo orden
+            const { error } = await supabase
+                .from('map_layers_order')
+                .insert(orderArray);
+
+            if (error) {
+                console.error('Error saving layer order to database:', error);
+            } else {
+                console.log('✅ Orden de capas guardado exitosamente en BD');
+            }
+        } catch (error) {
+            console.error('Error in saveLayerOrderToDatabase:', error);
+        }
+    }, [activeCompany?.id, supabase]);
+
     // Convert equipos data to floor plan items (for selector only)
     const convertEquiposToItems = useCallback((equiposData) => {
         return equiposData.map(equipo => ({
@@ -1130,6 +1239,11 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                             };
                         })
                     );
+
+                    // Load layer order for the active floor
+                    if (activeFloorId) {
+                        await loadLayerOrder(activeFloorId);
+                    }
                     setFloors(floorsWithItems);
                     setActiveFloorId(existingFloors[0].id);
                 } else {
@@ -1165,6 +1279,29 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         loadInitialData();
         loadAvailableStatuses();
     }, [activeCompany?.id]);
+
+    // Load layer order when active floor changes
+    useEffect(() => {
+        if (activeFloorId && activeCompany?.id) {
+            loadLayerOrder(activeFloorId);
+        }
+    }, [activeFloorId, activeCompany?.id, loadLayerOrder]);
+
+    // Debug: Log layers state changes
+    useEffect(() => {
+        console.log('=== ESTADO DE CAPAS ACTUALIZADO ===');
+        console.log('layers:', layers);
+        console.log('Keys de layers:', Object.keys(layers));
+        console.log('Valores de layers:', Object.values(layers));
+        
+        // Log z-index de cada capa
+        Object.entries(layers).forEach(([layerId, layer]) => {
+            console.log(`Capa ${layerId}: zIndex=${layer.zIndex}, name=${layer.itemName || layer.name}`);
+        });
+        
+        // Forzar re-renderizado del canvas cuando cambien las capas
+        console.log('🔄 Forzando re-renderizado del canvas por cambio de capas');
+    }, [layers]);
 
     // Load equipos with registros data
     useEffect(() => {
@@ -1273,7 +1410,10 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         }));
     }, []);
 
-    const handleLayerReorder = useCallback((layerId, direction, targetLayerId = null) => {
+    const handleLayerReorder = useCallback(async (layerId, direction, targetLayerId = null) => {
+        console.log('=== REORDENANDO CAPA ===');
+        console.log('layerId:', layerId, 'direction:', direction, 'targetLayerId:', targetLayerId);
+        
         setLayers(prev => {
             const layerEntries = Object.entries(prev);
             const currentIndex = layerEntries.findIndex(([id]) => id === layerId);
@@ -1303,9 +1443,17 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 { ...layer, zIndex: index }
             ]);
             
-            return Object.fromEntries(updatedEntries);
+            const result = Object.fromEntries(updatedEntries);
+            
+            // Guardar el orden en BD para todas las capas
+            if (activeFloorId) {
+                console.log('Guardando orden de capas en BD');
+                saveLayerOrderToDatabase(result, activeFloorId);
+            }
+            
+            return result;
         });
-    }, []);
+    }, [activeFloorId, saveLayerOrderToDatabase]);
 
     const handleLayerSelect = useCallback((layerId) => {
         setSelectedLayer(layerId);
@@ -1423,11 +1571,16 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         const layer = Number(layerZIndex) || 0;
         const custom = Number(customZIndex) || 0;
         
-        return base + layer + custom;
+        const finalZIndex = base + layer + custom;
+        
+        console.log(`Z-index para ${itemId}: base=${base}, layer=${layer}, custom=${custom}, final=${finalZIndex}`);
+        
+        return finalZIndex;
     }, [itemZIndex, layers]);
     
     // Memoizar z-indexes para evitar recálculos innecesarios
     const memoizedZIndexes = useMemo(() => {
+        console.log('🔄 Recalculando z-indexes memoizados');
         const zIndexes = {};
         const currentFloor = floors.find(f => f.id === activeFloorId);
         if (currentFloor) {
@@ -1435,8 +1588,9 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 zIndexes[item.id] = getFinalZIndex(item.id, item.type);
             });
         }
+        console.log('Z-indexes calculados:', zIndexes);
         return zIndexes;
-    }, [floors, activeFloorId, getFinalZIndex]);
+    }, [floors, activeFloorId, getFinalZIndex, layers]);
     
     // Viewport culling simple - solo renderizar elementos visibles
     const visibleItems = useMemo(() => {

@@ -3,7 +3,7 @@ import { MapIcon, PlusIcon, EyeIcon, EyeSlashIcon, Cog6ToothIcon, DocumentDuplic
 import { supabase } from '../supabaseClient';
 import { useAppContext } from '../context/AppContext';
 import toast from 'react-hot-toast';
-import Map2D from '../components/maps/Map2D';
+import LazyMap2D from '../components/maps/LazyMap2D';
 import DrawIOSync from '../components/maps/DrawIOSync';
 import EquipoLocationModal from '../components/modals/EquipoLocationModal';
 import AssetDetailModal from '../components/modals/AssetDetailModal';
@@ -496,7 +496,7 @@ const MapasPage = () => {
       </div>
 
       {/* Mapa 2D */}
-      <Map2D 
+      <LazyMap2D 
         onEquipoSelect={handleEquipoSelect}
         onEquipoDoubleClick={handleEquipoDoubleClick}
         selectedEquipo={selectedEquipo}

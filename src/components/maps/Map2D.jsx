@@ -1039,6 +1039,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     borderColor: item.border_color || '#6B7280',
                     textColor: item.text_color || '#374151',
                     locked: item.is_locked || false,
+                    is_visible: item.is_visible !== false, // Usar estado de BD o true por defecto
+                    opacity: item.opacity || 1.0, // Usar opacidad de BD o 1.0 por defecto
                     isEmpty: item.is_empty || false,
                     equipoId: item.equipo_id,
                     originalData: item.original_data || item
@@ -1155,6 +1157,87 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         }
     }, [activeCompany?.id, supabase]);
 
+    // Guardar estado de bloqueo de capa en la base de datos
+    const saveLayerLockToDatabase = useCallback(async (layerId, isLocked) => {
+        if (!activeFloorId || !activeCompany?.id) return;
+        
+        try {
+            console.log('Guardando estado de bloqueo de capa:', { layerId, isLocked });
+            
+            // Extraer el ID del elemento de la capa (formato: item_${itemId})
+            const itemId = layerId.replace('item_', '');
+            
+            // Actualizar el estado de bloqueo en la tabla map_items
+            const { error } = await supabase
+                .from('map_items')
+                .update({ is_locked: isLocked })
+                .eq('id', itemId)
+                .eq('company_id', activeCompany.id);
+
+            if (error) {
+                console.error('Error saving layer lock to database:', error);
+            } else {
+                console.log('✅ Estado de bloqueo guardado exitosamente en BD');
+            }
+        } catch (error) {
+            console.error('Error in saveLayerLockToDatabase:', error);
+        }
+    }, [activeFloorId, activeCompany?.id, supabase]);
+
+    // Guardar estado de visibilidad de capa en la base de datos
+    const saveLayerVisibilityToDatabase = useCallback(async (layerId, isVisible) => {
+        if (!activeFloorId || !activeCompany?.id) return;
+        
+        try {
+            console.log('Guardando estado de visibilidad de capa:', { layerId, isVisible });
+            
+            // Extraer el ID del elemento de la capa (formato: item_${itemId})
+            const itemId = layerId.replace('item_', '');
+            
+            // Actualizar el estado de visibilidad en la tabla map_items
+            const { error } = await supabase
+                .from('map_items')
+                .update({ is_visible: isVisible })
+                .eq('id', itemId)
+                .eq('company_id', activeCompany.id);
+
+            if (error) {
+                console.error('Error saving layer visibility to database:', error);
+            } else {
+                console.log('✅ Estado de visibilidad guardado exitosamente en BD');
+            }
+        } catch (error) {
+            console.error('Error in saveLayerVisibilityToDatabase:', error);
+        }
+    }, [activeFloorId, activeCompany?.id, supabase]);
+
+    // Guardar opacidad de capa en la base de datos
+    const saveLayerOpacityToDatabase = useCallback(async (layerId, opacity) => {
+        if (!activeFloorId || !activeCompany?.id) return;
+        
+        try {
+            console.log('Guardando opacidad de capa:', { layerId, opacity });
+            
+            // Extraer el ID del elemento de la capa (formato: item_${itemId})
+            const itemId = layerId.replace('item_', '');
+            
+            // Actualizar la opacidad en la tabla map_items
+            const { error } = await supabase
+                .from('map_items')
+                .update({ opacity: opacity })
+                .eq('id', itemId)
+                .eq('company_id', activeCompany.id);
+
+            if (error) {
+                console.error('Error saving layer opacity to database:', error);
+            } else {
+                console.log('✅ Opacidad de capa guardada exitosamente en BD');
+            }
+        } catch (error) {
+            console.error('Error in saveLayerOpacityToDatabase:', error);
+        }
+    }, [activeFloorId, activeCompany?.id, supabase]);
+
     // Convert equipos data to floor plan items (for selector only)
     const convertEquiposToItems = useCallback((equiposData) => {
         return equiposData.map(equipo => ({
@@ -1208,11 +1291,22 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     };
 
     // Load initial state from equipos data
-    // Load initial data from map_items
+    // Load initial data from map_items (optimizado para evitar recargas)
+    const loadedCompanyRef = useRef(null);
     useEffect(() => {
+        // Solo cargar datos si la empresa realmente cambió
+        if (activeCompany?.id === loadedCompanyRef.current) {
+            console.log('Empresa no cambió, omitiendo carga de datos');
+            return;
+        }
+
         const loadInitialData = async () => {
             try {
                 console.log('Cargando datos iniciales para empresa:', activeCompany?.id);
+                
+                // Marcar que ya se cargaron los datos para esta empresa
+                loadedCompanyRef.current = activeCompany?.id;
+                
                 // First, check if we have any floors
                 const { data: existingFloors, error: floorsError } = await supabase
                     .from('map_floors')
@@ -1273,6 +1367,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 }
             } catch (error) {
                 console.error('Error loading initial data:', error);
+                // Reset la referencia en caso de error para permitir reintento
+                loadedCompanyRef.current = null;
             }
         };
 
@@ -1287,30 +1383,37 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         }
     }, [activeFloorId, activeCompany?.id, loadLayerOrder]);
 
-    // Debug: Log layers state changes
+    // Debug: Log layers state changes (solo en desarrollo)
     useEffect(() => {
-        console.log('=== ESTADO DE CAPAS ACTUALIZADO ===');
-        console.log('layers:', layers);
-        console.log('Keys de layers:', Object.keys(layers));
-        console.log('Valores de layers:', Object.values(layers));
-        
-        // Log z-index de cada capa
-        Object.entries(layers).forEach(([layerId, layer]) => {
-            console.log(`Capa ${layerId}: zIndex=${layer.zIndex}, name=${layer.itemName || layer.name}`);
-        });
-        
-        // Forzar re-renderizado del canvas cuando cambien las capas
-        console.log('🔄 Forzando re-renderizado del canvas por cambio de capas');
+        if (process.env.NODE_ENV === 'development') {
+            console.log('=== ESTADO DE CAPAS ACTUALIZADO ===');
+            console.log('layers:', layers);
+            console.log('Keys de layers:', Object.keys(layers));
+            
+            // Log z-index de cada capa
+            Object.entries(layers).forEach(([layerId, layer]) => {
+                console.log(`Capa ${layerId}: zIndex=${layer.zIndex}, name=${layer.itemName || layer.name}`);
+            });
+        }
     }, [layers]);
 
-    // Load equipos with registros data
+    // Load equipos with registros data (optimizado para evitar recargas)
+    const loadedEquiposRef = useRef(null);
     useEffect(() => {
+        // Solo cargar equipos si la empresa realmente cambió
+        if (activeCompany?.id === loadedEquiposRef.current) {
+            console.log('Empresa no cambió, omitiendo carga de equipos');
+            return;
+        }
+
         const loadEquipos = async () => {
+            console.log('Cargando equipos para empresa:', activeCompany?.id);
+            loadedEquiposRef.current = activeCompany?.id;
             const equiposData = await loadEquiposWithRegistros();
             setEquipos(equiposData);
         };
         loadEquipos();
-    }, [loadEquiposWithRegistros]);
+    }, [loadEquiposWithRegistros, activeCompany?.id]);
 
     // Funciones para drag & drop de elementos individuales
     const handleItemDragStart = useCallback((e, itemId) => {
@@ -1408,6 +1511,35 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             ...prev,
             [layerId]: { ...prev[layerId], ...updates }
         }));
+
+        // Guardar cambios específicos en la base de datos
+        if (updates.locked !== undefined) {
+            saveLayerLockToDatabase(layerId, updates.locked);
+        }
+        if (updates.visible !== undefined) {
+            saveLayerVisibilityToDatabase(layerId, updates.visible);
+        }
+        if (updates.opacity !== undefined) {
+            saveLayerOpacityToDatabase(layerId, updates.opacity);
+        }
+    }, [saveLayerLockToDatabase, saveLayerVisibilityToDatabase, saveLayerOpacityToDatabase]);
+
+    // Función para normalizar z-index de capas (evitar valores muy grandes)
+    const normalizeLayerZIndexes = useCallback(() => {
+        setLayers(prev => {
+            const sortedLayers = Object.entries(prev).sort(([, a], [, b]) => a.zIndex - b.zIndex);
+            const normalizedLayers = sortedLayers.map(([id, layer], index) => [
+                id,
+                { ...layer, zIndex: index * 10 }
+            ]);
+            
+            console.log('Normalizando z-index de capas:');
+            normalizedLayers.forEach(([id, layer]) => {
+                console.log(`  ${id}: zIndex=${layer.zIndex}`);
+            });
+            
+            return Object.fromEntries(normalizedLayers);
+        });
     }, []);
 
     const handleLayerReorder = useCallback(async (layerId, direction, targetLayerId = null) => {
@@ -1415,35 +1547,52 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         console.log('layerId:', layerId, 'direction:', direction, 'targetLayerId:', targetLayerId);
         
         setLayers(prev => {
-            const layerEntries = Object.entries(prev);
-            const currentIndex = layerEntries.findIndex(([id]) => id === layerId);
+            // Ordenar las capas por z-index actual para mantener consistencia
+            const sortedLayerEntries = Object.entries(prev).sort(([, a], [, b]) => a.zIndex - b.zIndex);
+            const currentIndex = sortedLayerEntries.findIndex(([id]) => id === layerId);
             
-            if (currentIndex === -1) return prev;
+            if (currentIndex === -1) {
+                console.warn('Capa no encontrada:', layerId);
+                return prev;
+            }
             
             let newIndex;
             if (direction === 'up') {
                 newIndex = Math.max(0, currentIndex - 1);
             } else if (direction === 'down') {
-                newIndex = Math.min(layerEntries.length - 1, currentIndex + 1);
+                newIndex = Math.min(sortedLayerEntries.length - 1, currentIndex + 1);
             } else if (direction === 'move' && targetLayerId) {
-                const targetIndex = layerEntries.findIndex(([id]) => id === targetLayerId);
+                const targetIndex = sortedLayerEntries.findIndex(([id]) => id === targetLayerId);
                 newIndex = targetIndex;
             } else {
+                console.warn('Dirección de movimiento no válida:', direction);
+                return prev;
+            }
+            
+            // No hacer nada si la posición no cambió
+            if (currentIndex === newIndex) {
+                console.log('Posición no cambió, manteniendo orden actual');
                 return prev;
             }
             
             // Reordenar array
-            const newEntries = [...layerEntries];
+            const newEntries = [...sortedLayerEntries];
             const [movedLayer] = newEntries.splice(currentIndex, 1);
             newEntries.splice(newIndex, 0, movedLayer);
             
-            // Actualizar z-index
+            // Actualizar z-index manteniendo la lógica de ordenamiento
+            // Usar incrementos más grandes para evitar conflictos
             const updatedEntries = newEntries.map(([id, layer], index) => [
                 id, 
-                { ...layer, zIndex: index }
+                { ...layer, zIndex: index * 10 }
             ]);
             
             const result = Object.fromEntries(updatedEntries);
+            
+            console.log('Nuevo orden de capas:');
+            updatedEntries.forEach(([id, layer]) => {
+                console.log(`  ${id}: zIndex=${layer.zIndex}`);
+            });
             
             // Guardar el orden en BD para todas las capas
             if (activeFloorId) {
@@ -1451,9 +1600,14 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 saveLayerOrderToDatabase(result, activeFloorId);
             }
             
+            // Normalizar z-index después del reordenamiento para mantener valores limpios
+            setTimeout(() => {
+                normalizeLayerZIndexes();
+            }, 100);
+            
             return result;
         });
-    }, [activeFloorId, saveLayerOrderToDatabase]);
+    }, [activeFloorId, saveLayerOrderToDatabase, normalizeLayerZIndexes]);
 
     const handleLayerSelect = useCallback((layerId) => {
         setSelectedLayer(layerId);
@@ -1968,20 +2122,39 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             setLayers(prevLayers => {
                 const newLayers = { ...prevLayers };
                 
-                // Crear capas para elementos existentes
-                currentFloor.items.forEach(item => {
+                // Crear o actualizar capas para elementos existentes
+                // Primero, obtener el z-index más alto existente
+                const existingZIndexes = Object.values(newLayers).map(layer => layer.zIndex);
+                const maxZIndex = existingZIndexes.length > 0 ? Math.max(...existingZIndexes) : 0;
+                
+                currentFloor.items.forEach((item, index) => {
                     const layerId = `item_${item.id}`;
-                    if (!newLayers[layerId]) {
+                    const currentLayer = newLayers[layerId];
+                    
+                    if (!currentLayer) {
+                        // Crear nueva capa si no existe
+                        // Asignar z-index que mantenga el orden pero evite conflictos
+                        const newZIndex = maxZIndex + (index + 1) * 10;
                         newLayers[layerId] = {
-                            visible: true,
-                            locked: false,
-                            opacity: 1,
-                            zIndex: 5 + item.id,
+                            visible: item.is_visible !== false, // Usar estado de BD o true por defecto
+                            locked: item.is_locked || false, // Usar estado de BD
+                            opacity: item.opacity || 1, // Usar opacidad de BD o 1 por defecto
+                            zIndex: newZIndex,
                             lastModified: new Date().toLocaleString(),
                             type: 'item',
                             itemId: item.id,
                             itemType: item.type,
                             itemName: item.name || `Elemento ${item.id}`
+                        };
+                    } else {
+                        // Actualizar capa existente con el nombre y estados de BD
+                        newLayers[layerId] = {
+                            ...currentLayer,
+                            visible: item.is_visible !== false, // Sincronizar con BD
+                            locked: item.is_locked || false, // Sincronizar con BD
+                            opacity: item.opacity || 1, // Sincronizar con BD
+                            itemName: item.name || `Elemento ${item.id}`,
+                            lastModified: new Date().toLocaleString()
                         };
                     }
                 });
@@ -1999,10 +2172,27 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         }
     }, [floors, activeFloorId]);
 
-    // Llamar a updateLayersForItems cuando cambien los elementos
+    // Llamar a updateLayersForItems cuando cambien los elementos (optimizado)
+    const prevFloorItemsRef = useRef([]);
     useEffect(() => {
-        updateLayersForItems();
-    }, [updateLayersForItems]);
+        const currentFloor = floors.find(f => f.id === activeFloorId);
+        if (currentFloor && currentFloor.items) {
+            const currentItems = currentFloor.items;
+            const prevItems = prevFloorItemsRef.current;
+            
+            // Solo actualizar si realmente cambió la cantidad de elementos o sus IDs
+            const itemsChanged = 
+                currentItems.length !== prevItems.length ||
+                currentItems.some((item, index) => 
+                    !prevItems[index] || item.id !== prevItems[index].id || item.name !== prevItems[index].name
+                );
+            
+            if (itemsChanged) {
+                prevFloorItemsRef.current = [...currentItems];
+                updateLayersForItems();
+            }
+        }
+    }, [floors, activeFloorId, updateLayersForItems]);
 
     // Limpiar selección múltiple cuando cambie el piso activo
     useEffect(() => {
@@ -2092,13 +2282,111 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     }, [selectedId, selectedIds, copyElement, pasteElement, duplicateElement, deleteSelectedElements, floors, activeFloorId, isSpacePressed]);
 
     // Forzar re-render cuando cambien las capas (optimizado)
+    const layerCountRef = useRef(0);
     useEffect(() => {
         // Solo forzar re-render si realmente hay cambios significativos en las capas
-        const layerCount = Object.keys(layers).length;
-        if (layerCount > 0) {
+        const currentLayerCount = Object.keys(layers).length;
+        if (currentLayerCount !== layerCountRef.current && currentLayerCount > 0) {
+            layerCountRef.current = currentLayerCount;
             setItemZIndex(prev => ({ ...prev }));
         }
-    }, [Object.keys(layers).length]);
+    }, [layers]); // Depender del objeto layers completo, no solo del count
+
+    // Limpiar timeouts al desmontar el componente
+    useEffect(() => {
+        return () => {
+            // Limpiar timeout de auto-guardado
+            if (autosaveTimeout.current) {
+                clearTimeout(autosaveTimeout.current);
+            }
+            
+            // Limpiar timeouts de actualización de elementos
+            Object.values(updateTimeouts.current).forEach(timeout => {
+                if (timeout) clearTimeout(timeout);
+            });
+        };
+    }, []);
+
+    // Prevenir re-renderizados innecesarios cuando se pierde el foco de la ventana
+    useEffect(() => {
+        let isWindowFocused = true;
+        let preventReload = false;
+        
+        const handleVisibilityChange = () => {
+            isWindowFocused = !document.hidden;
+            
+            if (!isWindowFocused) {
+                // Pausar auto-guardado cuando la ventana no está visible
+                if (autosaveTimeout.current) {
+                    clearTimeout(autosaveTimeout.current);
+                    console.log('🔄 Auto-guardado pausado - ventana no visible');
+                }
+                
+                // Prevenir recargas cuando se pierde el foco
+                preventReload = true;
+                console.log('🛡️ Prevención de recargas activada - ventana no visible');
+            } else {
+                // Reanudar auto-guardado cuando la ventana vuelve a ser visible
+                console.log('🔄 Ventana visible - auto-guardado reanudado');
+                preventReload = false;
+                console.log('🛡️ Prevención de recargas desactivada - ventana visible');
+            }
+        };
+
+        const handleFocus = () => {
+            isWindowFocused = true;
+            preventReload = false;
+            console.log('🛡️ Prevención de recargas desactivada - foco recuperado');
+        };
+
+        const handleBlur = () => {
+            isWindowFocused = false;
+            preventReload = true;
+            console.log('🛡️ Prevención de recargas activada - foco perdido');
+        };
+
+        // Prevenir recarga de página cuando se pierde el foco
+        const handleBeforeUnload = (e) => {
+            if (preventReload) {
+                e.preventDefault();
+                e.returnValue = '';
+                console.log('🛡️ Recarga de página prevenida');
+                return '';
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('focus', handleFocus);
+        window.addEventListener('blur', handleBlur);
+        window.addEventListener('beforeunload', handleBeforeUnload);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('focus', handleFocus);
+            window.removeEventListener('blur', handleBlur);
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
+    }, []);
+
+    // Estabilizar el componente para evitar recargas innecesarias
+    useEffect(() => {
+        // Prevenir recargas cuando el componente se monta/desmonta
+        const handlePageShow = () => {
+            console.log('📄 Página visible - componente estable');
+        };
+
+        const handlePageHide = () => {
+            console.log('📄 Página oculta - componente pausado');
+        };
+
+        window.addEventListener('pageshow', handlePageShow);
+        window.addEventListener('pagehide', handlePageHide);
+
+        return () => {
+            window.removeEventListener('pageshow', handlePageShow);
+            window.removeEventListener('pagehide', handlePageHide);
+        };
+    }, []);
 
     // Update equipos when items change
     const updateEquipoPosition = useCallback(async (itemId, newProps) => {
@@ -2328,6 +2616,9 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 return prev;
             });
             
+            // Programar auto-guardado después de crear elemento
+            scheduleAutosave();
+            
             // Feedback visual en consola
             console.log(`✅ ${type === 'area' ? 'Área' : 'Equipo'} "${newItem.name}" creado completamente`);
             console.log('=== CREACIÓN DE ELEMENTO COMPLETADA ===');
@@ -2339,10 +2630,135 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
     // Debouncing para actualizaciones de BD
     const updateTimeouts = useRef({});
+    
+    // Auto-guardado del canvas
+    const [autosaveStatus, setAutosaveStatus] = useState('idle'); // 'idle', 'saving', 'saved', 'error'
+    const autosaveTimeout = useRef(null);
+    const lastAutosaveTime = useRef(null);
+
+    // Función de auto-guardado completo del canvas
+    const performAutosave = useCallback(async () => {
+        if (!activeFloorId || !activeCompany?.id) return;
+        
+        console.log('🔄 Iniciando auto-guardado del canvas...');
+        setAutosaveStatus('saving');
+        
+        try {
+            const currentFloor = floors.find(f => f.id === activeFloorId);
+            if (!currentFloor || !currentFloor.items) {
+                console.log('No hay elementos para guardar');
+                setAutosaveStatus('idle');
+                return;
+            }
+
+            // Guardar todos los elementos del piso actual
+            const savePromises = currentFloor.items.map(async (item) => {
+                const dbUpdateData = {
+                    x: Math.round(item.x),
+                    y: Math.round(item.y),
+                    width: Math.round(item.width),
+                    height: Math.round(item.height),
+                    name: item.name,
+                    asset_tag: item.assetTag,
+                    status: item.status,
+                    background_color: item.backgroundColor,
+                    border_color: item.borderColor,
+                    text_color: item.textColor,
+                    is_locked: item.locked,
+                    is_empty: item.isEmpty || false,
+                    equipo_id: item.equipoId,
+                    original_data: item.originalData
+                };
+
+                const { error } = await supabase
+                    .from('map_items')
+                    .update(dbUpdateData)
+                    .eq('id', item.id)
+                    .eq('company_id', activeCompany.id);
+
+                if (error) {
+                    console.error(`Error auto-guardando elemento ${item.id}:`, error);
+                    throw error;
+                }
+                
+                return item.id;
+            });
+
+            await Promise.all(savePromises);
+            
+            // Guardar orden de capas si existe
+            if (Object.keys(layers).length > 0) {
+                await saveLayerOrderToDatabase(layers, activeFloorId);
+            }
+
+            lastAutosaveTime.current = new Date();
+            console.log('✅ Auto-guardado completado exitosamente');
+            setAutosaveStatus('saved');
+            
+            // Reset status after 2 seconds
+            setTimeout(() => {
+                setAutosaveStatus('idle');
+            }, 2000);
+            
+        } catch (error) {
+            console.error('❌ Error en auto-guardado:', error);
+            setAutosaveStatus('error');
+            
+            // Reset error status after 3 seconds
+            setTimeout(() => {
+                setAutosaveStatus('idle');
+            }, 3000);
+        }
+    }, [activeFloorId, activeCompany?.id, floors, layers, saveLayerOrderToDatabase, supabase]);
+
+    // Función para programar auto-guardado
+    const scheduleAutosave = useCallback(() => {
+        // No programar auto-guardado si la ventana no está visible
+        if (document.hidden) {
+            console.log('📅 Auto-guardado omitido - ventana no visible');
+            return;
+        }
+        
+        // Cancelar auto-guardado anterior si existe
+        if (autosaveTimeout.current) {
+            clearTimeout(autosaveTimeout.current);
+        }
+        
+        // Programar nuevo auto-guardado en 2 segundos
+        autosaveTimeout.current = setTimeout(() => {
+            // Verificar nuevamente que la ventana esté visible antes de guardar
+            if (!document.hidden) {
+                performAutosave();
+            } else {
+                console.log('📅 Auto-guardado cancelado - ventana no visible');
+            }
+        }, 2000);
+        
+        console.log('📅 Auto-guardado programado en 2 segundos');
+    }, [performAutosave]);
+
+    // Función para forzar guardado manual
+    const forceSave = useCallback(async () => {
+        // Cancelar auto-guardado programado si existe
+        if (autosaveTimeout.current) {
+            clearTimeout(autosaveTimeout.current);
+        }
+        
+        // Ejecutar guardado inmediatamente
+        await performAutosave();
+    }, [performAutosave]);
 
     const handleUpdateItem = useCallback(async (id, updatedData) => {
         // Update local state immediately
         updateActiveFloorItems(items => items.map(item => item.id === id ? { ...item, ...updatedData } : item));
+        
+        // Actualizar las capas inmediatamente si cambió el nombre
+        if (updatedData.name !== undefined) {
+            updateLayersForItems();
+        }
+        
+        // Programar auto-guardado del canvas
+        scheduleAutosave();
         
         // Clear existing timeout for this item
         if (updateTimeouts.current[id]) {
@@ -2385,7 +2801,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             console.error('Error updating item:', error);
         }
         }, 300); // 300ms debounce
-    }, [updateActiveFloorItems]);
+    }, [updateActiveFloorItems, updateLayersForItems, scheduleAutosave]);
 
     
     const handleDeleteItem = async (id) => {
@@ -2416,6 +2832,9 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 delete newLayers[itemLayerId];
                 return newLayers;
             });
+            
+            // Programar auto-guardado después de eliminar elemento
+            scheduleAutosave();
             
         } catch (error) {
             console.error('Error deleting item:', error);
@@ -2482,26 +2901,14 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     const itemsToRender = activeFloor ? activeFloor.items : []; // visibleItems; // Usar elementos visibles para mejor rendimiento
     const selectedItem = itemsToRender.find(item => item.id === selectedId);
     
-    // Debug: Log de elementos a renderizar
+    // Debug: Log de elementos a renderizar (solo en desarrollo y cuando cambia el piso)
     React.useEffect(() => {
-        if (activeFloor && activeFloor.items.length > 0) {
+        if (process.env.NODE_ENV === 'development' && activeFloor && activeFloor.items.length > 0) {
             console.log(`Renderizado - Piso activo: ${activeFloorId}`);
             console.log(`Total elementos en piso: ${activeFloor.items.length}`);
             console.log(`Elementos a renderizar: ${itemsToRender.length}`);
-            console.log('Elementos en piso:', activeFloor.items.map(item => ({
-                id: item.id,
-                name: item.name,
-                x: item.x,
-                y: item.y,
-                width: item.width,
-                height: item.height
-            })));
-            console.log('Elementos a renderizar:', itemsToRender.map(item => ({
-                id: item.id,
-                name: item.name
-            })));
         }
-    }, [activeFloorId, activeFloor, itemsToRender]);
+    }, [activeFloorId]); // Solo depende del cambio de piso, no de cada render
 
   return (
         <div className="h-[800px] w-full bg-gray-100 flex flex-col font-sans select-none rounded-lg border">
@@ -2547,6 +2954,50 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     )}
                     <button onClick={() => handleAddItem('area')} className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-blue-600 transition-all duration-200 hover:scale-105">Añadir Área</button>
                     <button onClick={() => handleAddItem('equipment')} className="bg-green-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-green-600 transition-all duration-200 hover:scale-105">Añadir Equipo</button>
+                    <button 
+                        onClick={forceSave} 
+                        disabled={autosaveStatus === 'saving'}
+                        className="bg-gray-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-gray-600 transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Forzar guardado manual"
+                    >
+                        {autosaveStatus === 'saving' ? 'Guardando...' : '💾 Guardar'}
+                    </button>
+                    
+                    {/* Indicador de auto-guardado */}
+                    <div className="flex items-center gap-2 ml-4">
+                        {autosaveStatus === 'saving' && (
+                            <div className="flex items-center gap-2 text-blue-600">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                <span className="text-sm font-medium">Guardando...</span>
+                            </div>
+                        )}
+                        {autosaveStatus === 'saved' && (
+                            <div className="flex items-center gap-2 text-green-600">
+                                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                                <span className="text-sm font-medium">Canvas guardado</span>
+                            </div>
+                        )}
+                        {autosaveStatus === 'error' && (
+                            <div className="flex items-center gap-2 text-red-600">
+                                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                                <span className="text-sm font-medium">Error al guardar</span>
+                            </div>
+                        )}
+                        {autosaveStatus === 'idle' && lastAutosaveTime.current && (
+                            <div className="flex items-center gap-2 text-gray-500">
+                                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                                </svg>
+                                <span className="text-sm">
+                                    Último guardado: {lastAutosaveTime.current.toLocaleTimeString()}
+                                </span>
+                            </div>
+                        )}
+                    </div>
       </div>
             </header>
             

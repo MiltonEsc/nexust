@@ -1,6 +1,6 @@
 // src/pages/InventarioPage.jsx
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabaseClient";
 import { useAppContext } from "../context/AppContext";
 import Modal from "../components/common/Modal";
@@ -11,6 +11,7 @@ import ConsumibleForm from "../components/forms/ConsumibleForm"; // Importar el 
 import AssetDetailModal from "../components/modals/AssetDetailModal";
 import ImportCSVModal from "../components/modals/ImportCSVModal";
 import Pagination from "../components/common/Pagination";
+import SimpleInventoryList from "../components/common/SimpleInventoryList";
 import QRScanButton from "../components/qr/QRScanButton";
 import QRGeneratorModal from "../components/modals/QRGeneratorModal";
 import {
@@ -41,6 +42,7 @@ function InventarioPage() {
 
   const [activeTab, setActiveTab] = useState("equipos");
   const [items, setItems] = useState([]);
+  const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -50,10 +52,10 @@ function InventarioPage() {
   const [viewingItem, setViewingItem] = useState(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
   const [viewMode, setViewMode] = useState("table");
   const [scannedAsset, setScannedAsset] = useState(null);
   const [isQRGeneratorOpen, setIsQRGeneratorOpen] = useState(false);
+  const [selectedItems, setSelectedItems] = useState([]);
 
   const fetchData = async (tab, search, page, isRefresh = false) => {
     if (!activeCompany) {
@@ -95,7 +97,7 @@ function InventarioPage() {
           equipos: `marca.ilike.%${search}%,modelo.ilike.%${search}%,numero_serie.ilike.%${search}%`,
           software: `nombre.ilike.%${search}%,version.ilike.%${search}%`,
           perifericos: `tipo.ilike.%${search}%,marca.ilike.%${search}%,modelo.ilike.%${search}%`,
-          consumibles: `nombre.ilike.%${search}%,categoria.ilike.%${search}%`, // Búsqueda para consumibles
+          consumibles: `nombre.ilike.%${search}%,categoria.ilike.%${search}%`,
         };
         query = query.or(searchColumns[tab]);
       }
@@ -113,6 +115,9 @@ function InventarioPage() {
       setRefreshing(false);
     }
   };
+
+  const handleRefresh = () =>
+    fetchData(activeTab, searchTerm, currentPage, true);
 
   const fetchMaintenanceForEquipo = async (equipoId) => {
     try {
@@ -140,6 +145,7 @@ function InventarioPage() {
     }
   }, [activeTab, searchTerm, currentPage, activeCompany]);
 
+  // Calcular paginación
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
 
   const handleAddNew = () => {
@@ -187,8 +193,6 @@ function InventarioPage() {
   };
 
   const handleImportCSV = () => setIsImportModalOpen(true);
-  const handleRefresh = () =>
-    fetchData(activeTab, searchTerm, currentPage, true);
 
   const handleDelete = (idToDelete) => {
     const deleteAction = async () => {
@@ -200,9 +204,11 @@ function InventarioPage() {
         showNotification(error.message, "error");
       } else {
         showNotification("Ítem eliminado correctamente.", "success");
+        // Si es el último elemento de la página y no es la primera página, ir a la anterior
         if (items.length === 1 && currentPage > 1) {
           setCurrentPage(currentPage - 1);
         } else {
+          // Recargar la página actual
           fetchData(activeTab, searchTerm, currentPage);
         }
       }
@@ -781,7 +787,30 @@ function InventarioPage() {
           </div>
         ) : (
           <>
-            <TableView />
+            {viewMode === "table" ? (
+              <TableView />
+            ) : (
+              <SimpleInventoryList
+                items={items}
+                onView={handleViewDetails}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onSelect={(item) => {
+                  const isSelected = selectedItems.includes(item.id);
+                  if (isSelected) {
+                    setSelectedItems(selectedItems.filter(id => id !== item.id));
+                  } else {
+                    setSelectedItems([...selectedItems, item.id]);
+                  }
+                }}
+                selectedItems={selectedItems}
+                loading={loading}
+                error={error}
+                emptyMessage={`No hay ${config.title.toLowerCase()} para mostrar`}
+              />
+            )}
+            
+            {/* Paginación - se muestra siempre que haya más de una página */}
             {totalPages > 1 && (
               <div className="mt-8">
                 <Pagination

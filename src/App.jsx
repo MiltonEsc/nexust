@@ -1,7 +1,10 @@
 import React, { useEffect } from "react"; // <-- CORRECCIÓN APLICADA AQUÍ
 import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { AppProvider, useAppContext } from "./context/AppContext";
-import ConfirmationModal from "./components/common/ConfirmationModal"; 
+import QueryProvider from "./providers/QueryProvider";
+import ConfirmationModal from "./components/common/ConfirmationModal";
+import ChatbotWidget from "./components/ai/ChatbotWidget";
+import ChatbotDebug from "./components/ai/ChatbotDebug"; 
 
 // Layouts & Pages
 import AuthPage from "./pages/AuthPage";
@@ -16,6 +19,7 @@ import MantenimientoPage from "./pages/MantenimientoPage";
 import ReportesPage from "./pages/ReportesPage";
 import EmpresasPage from "./pages/EmpresasPage";
 import MapasPage from "./pages/MapasPage";
+import AIPage from "./pages/AIPage";
 
 // Componente interno para manejar las redirecciones y la lógica de rutas
 function AppRoutes() {
@@ -58,6 +62,7 @@ function AppRoutes() {
         <Route path="mapas" element={<MapasPage />} />
         <Route path="reportes" element={<ReportesPage />} />
         <Route path="empresas" element={<EmpresasPage />} />
+        <Route path="ia" element={<AIPage />} />
       </Route>
     </Routes>
   );
@@ -66,20 +71,24 @@ function AppRoutes() {
 // El componente principal ahora solo configura el Proveedor de Contexto
 function App() {
   return (
-    <AppProvider>
-      <Toaster
-        position="top-right"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: "#363636",
-            color: "#fff",
-          },
-        }}
-      />
-      <AppRoutes />
-      <ConfirmationModal />
-    </AppProvider>
+    <QueryProvider>
+      <AppProvider>
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            duration: 4000,
+            style: {
+              background: "#363636",
+              color: "#fff",
+            },
+          }}
+        />
+        <AppRoutes />
+        <ConfirmationModal />
+        <ChatbotWidget userId="user_123" context={{}} />
+        <ChatbotDebug />
+      </AppProvider>
+    </QueryProvider>
   );
 }
 

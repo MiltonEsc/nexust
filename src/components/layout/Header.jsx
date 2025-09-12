@@ -296,6 +296,13 @@ function Header() {
             >
               Reportes
             </Link>
+
+            <Link
+              to="/ia"
+              className={`nav-link ${pathname === "/ia" ? "active" : ""}`}
+            >
+              IA & Automatización
+            </Link>
           </nav>
 
           <div className="flex items-center gap-4">

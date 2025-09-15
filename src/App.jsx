@@ -1,10 +1,8 @@
 import React, { useEffect } from "react"; // <-- CORRECCIÓN APLICADA AQUÍ
 import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { AppProvider, useAppContext } from "./context/AppContext";
-import QueryProvider from "./providers/QueryProvider";
 import ConfirmationModal from "./components/common/ConfirmationModal";
 import ChatbotWidget from "./components/ai/ChatbotWidget";
-import ChatbotDebug from "./components/ai/ChatbotDebug"; 
 
 // Layouts & Pages
 import AuthPage from "./pages/AuthPage";
@@ -71,24 +69,21 @@ function AppRoutes() {
 // El componente principal ahora solo configura el Proveedor de Contexto
 function App() {
   return (
-    <QueryProvider>
-      <AppProvider>
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: "#363636",
-              color: "#fff",
-            },
-          }}
-        />
-        <AppRoutes />
-        <ConfirmationModal />
-        <ChatbotWidget userId="user_123" context={{}} />
-        <ChatbotDebug />
-      </AppProvider>
-    </QueryProvider>
+    <AppProvider>
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: "#363636",
+            color: "#fff",
+          },
+        }}
+      />
+      <AppRoutes />
+      <ConfirmationModal />
+      <ChatbotWidget userId="user_123" context={{}} />
+    </AppProvider>
   );
 }
 

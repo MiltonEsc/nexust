@@ -846,6 +846,7 @@ function InventarioPage() {
       </Modal>
 
       <AssetDetailModal
+        isOpen={!!viewingItem}
         asset={viewingItem}
         onClose={() => setViewingItem(null)}
       />

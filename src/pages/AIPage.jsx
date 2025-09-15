@@ -1,15 +1,13 @@
 import React from 'react';
 import AIDashboard from '../components/ai/AIDashboard';
 import { useAppContext } from '../context/AppContext';
-import { useEquipos, useSoftware, usePerifericos } from '../hooks/useInventoryQueries';
+import { useInventoryData } from '../hooks/useInventoryData';
 
 const AIPage = () => {
   const { activeCompany } = useAppContext();
   
   // Obtener datos para el dashboard de IA
-  const { data: equipos = [] } = useEquipos(activeCompany?.id);
-  const { data: software = [] } = useSoftware(activeCompany?.id);
-  const { data: perifericos = [] } = usePerifericos(activeCompany?.id);
+  const { equipos = [], software = [], perifericos = [] } = useInventoryData();
 
   const companyData = {
     equipos,

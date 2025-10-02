@@ -80,14 +80,7 @@ Puedo ayudarte con consultas inteligentes sobre tu inventario, recomendaciones, 
       };
 
       // Debug: Log del contexto para verificar datos
-      console.log('Contexto enviado a Gemini:', {
-        equipos: contextWithInventory.equipos.length,
-        software: contextWithInventory.software.length,
-        perifericos: contextWithInventory.perifericos.length,
-        consumibles: contextWithInventory.consumibles.length,
-        loading: inventoryData.loading,
-        error: inventoryData.error
-      });
+      // Contexto enviado a Gemini
 
       const response = await geminiChatbot.processMessage(userId, userMessage, contextWithInventory);
       
@@ -143,7 +136,7 @@ Puedo ayudarte con consultas inteligentes sobre tu inventario, recomendaciones, 
   // Manejar acciones
   const handleActionClick = (action) => {
     // Aquí se pueden implementar las acciones específicas
-    console.log('Action clicked:', action);
+    // Action clicked
   };
 
   // Abrir chatbot con mensaje inicial

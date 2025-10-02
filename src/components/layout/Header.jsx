@@ -28,7 +28,6 @@ function Header() {
   };
 
   const gestionRoutes = ["/hojas-de-vida", "/inventario", "/mantenimiento"];
-  const adminRoutes = ["/empresas", "/proveedores", "/hojas-de-vida/nuevo"];
 
   useEffect(() => {
     const fetchNotifs = async () => {
@@ -266,29 +265,6 @@ function Header() {
               </Link>
             </Dropdown>
 
-            <Dropdown
-              title="Administración"
-              isActive={adminRoutes.some((route) => pathname.startsWith(route))}
-            >
-              <Link
-                to="/empresas"
-                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-              >
-                Empresas
-              </Link>
-              <Link
-                to="/proveedores"
-                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-              >
-                Proveedores
-              </Link>
-              <Link
-                to="/hojas-de-vida/nuevo"
-                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-              >
-                Registrar Usuario
-              </Link>
-            </Dropdown>
 
             <Link
               to="/reportes"

@@ -78,14 +78,6 @@ export const useInventoryData = () => {
           error: null
         };
 
-        // Debug: Log de los datos obtenidos
-        console.log('Datos del inventario obtenidos:', {
-          equipos: inventoryData.equipos.length,
-          software: inventoryData.software.length,
-          perifericos: inventoryData.perifericos.length,
-          consumibles: inventoryData.consumibles.length,
-          companyId: companyId
-        });
 
         setInventoryData(inventoryData);
 

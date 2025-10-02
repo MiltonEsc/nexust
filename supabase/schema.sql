@@ -855,4 +855,272 @@ GRANT ALL ON TABLE "public"."maintenance_schedules" TO "anon";
 GRANT ALL ON TABLE "public"."maintenance_schedules" TO "authenticated";
 GRANT ALL ON TABLE "public"."maintenance_schedules" TO "service_role";
 
+-- Active Directory Integration Tables
+
+-- Tabla de configuración de AD
+CREATE TABLE "public"."ad_config" (
+    "id" uuid DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
+    "company_id" uuid NOT NULL,
+    "url" text NOT NULL,
+    "base_dn" text NOT NULL,
+    "bind_dn" text NOT NULL,
+    "bind_password" text NOT NULL,
+    "search_base" text NOT NULL,
+    "search_filter" text DEFAULT '(objectClass=user)'::text NOT NULL,
+    "search_attributes" text[] DEFAULT ARRAY['cn', 'mail', 'sAMAccountName', 'displayName', 'department', 'title', 'manager', 'memberOf']::text[] NOT NULL,
+    "is_active" boolean DEFAULT true NOT NULL,
+    "last_sync" timestamp with time zone,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+-- Tabla de grupos de AD
+CREATE TABLE "public"."ad_groups" (
+    "id" uuid DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
+    "company_id" uuid NOT NULL,
+    "name" text NOT NULL,
+    "description" text,
+    "dn" text NOT NULL,
+    "members" text[],
+    "last_sync" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+-- Tabla de usuarios de AD
+CREATE TABLE "public"."ad_users" (
+    "id" uuid DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
+    "company_id" uuid NOT NULL,
+    "username" text NOT NULL,
+    "email" text,
+    "display_name" text,
+    "first_name" text,
+    "last_name" text,
+    "department" text,
+    "title" text,
+    "manager" text,
+    "groups" text[],
+    "dn" text NOT NULL,
+    "last_login" timestamp with time zone,
+    "account_disabled" boolean DEFAULT false NOT NULL,
+    "password_expired" boolean DEFAULT false NOT NULL,
+    "last_sync" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+-- Tabla de sincronización de AD
+CREATE TABLE "public"."ad_sync_log" (
+    "id" uuid DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
+    "company_id" uuid NOT NULL,
+    "sync_type" text NOT NULL,
+    "status" text NOT NULL,
+    "message" text,
+    "users_synced" integer DEFAULT 0,
+    "groups_synced" integer DEFAULT 0,
+    "errors" jsonb,
+    "started_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "completed_at" timestamp with time zone
+);
+
+-- Modificar tabla users para soportar AD
+ALTER TABLE "public"."users" 
+ADD COLUMN "is_ad_user" boolean DEFAULT false,
+ADD COLUMN "ad_groups" text[],
+ADD COLUMN "last_ad_sync" timestamp with time zone;
+
+-- Índices para optimización
+CREATE INDEX "idx_ad_config_company_id" ON "public"."ad_config" ("company_id");
+CREATE INDEX "idx_ad_groups_company_id" ON "public"."ad_groups" ("company_id");
+CREATE INDEX "idx_ad_users_company_id" ON "public"."ad_users" ("company_id");
+CREATE INDEX "idx_ad_users_username" ON "public"."ad_users" ("username");
+CREATE INDEX "idx_ad_sync_log_company_id" ON "public"."ad_sync_log" ("company_id");
+CREATE INDEX "idx_users_is_ad_user" ON "public"."users" ("is_ad_user");
+
+-- Constraints
+ALTER TABLE "public"."ad_config" ADD CONSTRAINT "ad_config_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE CASCADE;
+ALTER TABLE "public"."ad_groups" ADD CONSTRAINT "ad_groups_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE CASCADE;
+ALTER TABLE "public"."ad_users" ADD CONSTRAINT "ad_users_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE CASCADE;
+ALTER TABLE "public"."ad_sync_log" ADD CONSTRAINT "ad_sync_log_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE CASCADE;
+
+-- RLS Policies
+ALTER TABLE "public"."ad_config" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."ad_groups" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."ad_users" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."ad_sync_log" ENABLE ROW LEVEL SECURITY;
+
+-- Políticas RLS para ad_config
+CREATE POLICY "Users can view ad_config for their companies" ON "public"."ad_config"
+    FOR SELECT USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can insert ad_config for their companies" ON "public"."ad_config"
+    FOR INSERT WITH CHECK (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can update ad_config for their companies" ON "public"."ad_config"
+    FOR UPDATE USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can delete ad_config for their companies" ON "public"."ad_config"
+    FOR DELETE USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+-- Políticas RLS para ad_groups
+CREATE POLICY "Users can view ad_groups for their companies" ON "public"."ad_groups"
+    FOR SELECT USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can insert ad_groups for their companies" ON "public"."ad_groups"
+    FOR INSERT WITH CHECK (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can update ad_groups for their companies" ON "public"."ad_groups"
+    FOR UPDATE USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can delete ad_groups for their companies" ON "public"."ad_groups"
+    FOR DELETE USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+-- Políticas RLS para ad_users
+CREATE POLICY "Users can view ad_users for their companies" ON "public"."ad_users"
+    FOR SELECT USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can insert ad_users for their companies" ON "public"."ad_users"
+    FOR INSERT WITH CHECK (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can update ad_users for their companies" ON "public"."ad_users"
+    FOR UPDATE USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can delete ad_users for their companies" ON "public"."ad_users"
+    FOR DELETE USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+-- Políticas RLS para ad_sync_log
+CREATE POLICY "Users can view ad_sync_log for their companies" ON "public"."ad_sync_log"
+    FOR SELECT USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can insert ad_sync_log for their companies" ON "public"."ad_sync_log"
+    FOR INSERT WITH CHECK (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+-- Grants para las nuevas tablas
+GRANT ALL ON TABLE "public"."ad_config" TO "anon";
+GRANT ALL ON TABLE "public"."ad_config" TO "authenticated";
+GRANT ALL ON TABLE "public"."ad_config" TO "service_role";
+
+GRANT ALL ON TABLE "public"."ad_groups" TO "anon";
+GRANT ALL ON TABLE "public"."ad_groups" TO "authenticated";
+GRANT ALL ON TABLE "public"."ad_groups" TO "service_role";
+
+GRANT ALL ON TABLE "public"."ad_users" TO "anon";
+GRANT ALL ON TABLE "public"."ad_users" TO "authenticated";
+GRANT ALL ON TABLE "public"."ad_users" TO "service_role";
+
+GRANT ALL ON TABLE "public"."ad_sync_log" TO "anon";
+GRANT ALL ON TABLE "public"."ad_sync_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."ad_sync_log" TO "service_role";
+
+-- Network Scanner Tables
+
+-- Tabla de rangos de red
+CREATE TABLE "public"."network_ranges" (
+    "id" uuid DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
+    "company_id" uuid NOT NULL,
+    "name" text NOT NULL,
+    "range" text NOT NULL,
+    "description" text,
+    "is_active" boolean DEFAULT true NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+-- Tabla de dispositivos de red detectados
+CREATE TABLE "public"."network_devices" (
+    "id" uuid DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
+    "company_id" uuid NOT NULL,
+    "ip_address" text NOT NULL,
+    "device_type" text NOT NULL,
+    "status" text NOT NULL,
+    "open_ports" jsonb,
+    "device_info" jsonb,
+    "scan_timestamp" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "is_linked" boolean DEFAULT false NOT NULL,
+    "linked_inventory_type" text,
+    "linked_inventory_id" uuid,
+    "linked_at" timestamp with time zone,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+-- Tabla de logs de escaneo
+CREATE TABLE "public"."network_scan_logs" (
+    "id" uuid DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
+    "company_id" uuid NOT NULL,
+    "scan_type" text NOT NULL,
+    "ranges_scanned" text[] NOT NULL,
+    "devices_found" integer DEFAULT 0,
+    "devices_linked" integer DEFAULT 0,
+    "scan_duration" integer,
+    "status" text NOT NULL,
+    "error_message" text,
+    "started_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "completed_at" timestamp with time zone
+);
+
+-- Índices para optimización
+CREATE INDEX "idx_network_ranges_company_id" ON "public"."network_ranges" ("company_id");
+CREATE INDEX "idx_network_devices_company_id" ON "public"."network_devices" ("company_id");
+CREATE INDEX "idx_network_devices_ip_address" ON "public"."network_devices" ("ip_address");
+CREATE INDEX "idx_network_devices_device_type" ON "public"."network_devices" ("device_type");
+CREATE INDEX "idx_network_devices_is_linked" ON "public"."network_devices" ("is_linked");
+CREATE INDEX "idx_network_scan_logs_company_id" ON "public"."network_scan_logs" ("company_id");
+
+-- Constraints
+ALTER TABLE "public"."network_ranges" ADD CONSTRAINT "network_ranges_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE CASCADE;
+ALTER TABLE "public"."network_devices" ADD CONSTRAINT "network_devices_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE CASCADE;
+ALTER TABLE "public"."network_scan_logs" ADD CONSTRAINT "network_scan_logs_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE CASCADE;
+
+-- RLS Policies
+ALTER TABLE "public"."network_ranges" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."network_devices" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."network_scan_logs" ENABLE ROW LEVEL SECURITY;
+
+-- Políticas RLS para network_ranges
+CREATE POLICY "Users can view network_ranges for their companies" ON "public"."network_ranges"
+    FOR SELECT USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can insert network_ranges for their companies" ON "public"."network_ranges"
+    FOR INSERT WITH CHECK (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can update network_ranges for their companies" ON "public"."network_ranges"
+    FOR UPDATE USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can delete network_ranges for their companies" ON "public"."network_ranges"
+    FOR DELETE USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+-- Políticas RLS para network_devices
+CREATE POLICY "Users can view network_devices for their companies" ON "public"."network_devices"
+    FOR SELECT USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can insert network_devices for their companies" ON "public"."network_devices"
+    FOR INSERT WITH CHECK (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can update network_devices for their companies" ON "public"."network_devices"
+    FOR UPDATE USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can delete network_devices for their companies" ON "public"."network_devices"
+    FOR DELETE USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+-- Políticas RLS para network_scan_logs
+CREATE POLICY "Users can view network_scan_logs for their companies" ON "public"."network_scan_logs"
+    FOR SELECT USING (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+CREATE POLICY "Users can insert network_scan_logs for their companies" ON "public"."network_scan_logs"
+    FOR INSERT WITH CHECK (("company_id" IN (SELECT "public"."get_my_companies"())));
+
+-- Grants para las nuevas tablas
+GRANT ALL ON TABLE "public"."network_ranges" TO "anon";
+GRANT ALL ON TABLE "public"."network_ranges" TO "authenticated";
+GRANT ALL ON TABLE "public"."network_ranges" TO "service_role";
+
+GRANT ALL ON TABLE "public"."network_devices" TO "anon";
+GRANT ALL ON TABLE "public"."network_devices" TO "authenticated";
+GRANT ALL ON TABLE "public"."network_devices" TO "service_role";
+
+GRANT ALL ON TABLE "public"."network_scan_logs" TO "anon";
+GRANT ALL ON TABLE "public"."network_scan_logs" TO "authenticated";
+GRANT ALL ON TABLE "public"."network_scan_logs" TO "service_role";
+
 RESET ALL;

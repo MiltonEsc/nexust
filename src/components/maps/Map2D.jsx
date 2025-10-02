@@ -121,11 +121,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             // Debug para elementos recién creados
             const isNewElement = data.id.includes(Date.now().toString().slice(-6)); // Últimos 6 dígitos del timestamp
             if (isNewElement || data.name.includes('Nueva') || data.name.includes('Vacío')) {
-                console.log(`Iniciando arrastre de elemento nuevo: ${data.name}`, {
-                    elementPos: { x: data.x, y: data.y },
-                    mousePos: { x: e.clientX, y: e.clientY },
-                    scale: scale
-                });
+                // Iniciando arrastre de elemento nuevo
             }
             
             // Si hay selección múltiple real (más de 1 elemento), guardar las posiciones iniciales
@@ -139,7 +135,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
                         }
                     });
                     setSelectedItemsInitialPositions(initialPositions);
-                    console.log(`Posiciones iniciales guardadas para ${initialPositions.size} elementos`);
+                    // Posiciones iniciales guardadas
                 }
             }
         } else if (actionType.startsWith('resize')) {
@@ -170,12 +166,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             // Debug para elementos recién creados
             const isNewElement = data.name.includes('Nueva') || data.name.includes('Vacío');
             if (isNewElement) {
-                console.log(`Moviendo elemento nuevo: ${data.name}`, {
-                    originalPos: { x: data.x, y: data.y },
-                    newPos: { x: newX, y: newY },
-                    mouseDelta: { x: e.clientX - dragStart.x, y: e.clientY - dragStart.y },
-                    scale: scale
-                });
+                // Moviendo elemento nuevo
             }
             
             // Si hay selección múltiple real (más de 1 elemento), mover todos los elementos seleccionados
@@ -343,7 +334,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         
         // Aplicar orden personalizado si existe
         const finalZIndex = getFinalZIndex ? getFinalZIndex(data.id, data.type) : baseLayer;
-        console.log(`Elemento ${data.id} (${data.type}): zIndex=${finalZIndex}`);
+        // Elemento zIndex calculado
         return finalZIndex;
     };
 
@@ -359,7 +350,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
     
     // Debug: Log layer para elementos bloqueados
     if (data.locked) {
-        console.log(`Elemento bloqueado ${data.id} (${data.type}): layer = ${getLayer()}, isSelected = ${isSelected}`);
+        // Elemento bloqueado
     }
 
     // No renderizar si la capa no está visible
@@ -377,7 +368,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             ref={(el) => {
                 itemRef.current = el;
                 if (el) {
-                    console.log(`Elemento ${data.id} DOM zIndex:`, el.style.zIndex);
+                    // Elemento DOM zIndex
                 }
             }}
             className={`absolute ${cursorClass} ${selectionClass} ${multiSelectionClass} transition-all duration-300 ease-out`}
@@ -605,7 +596,7 @@ const LayersPanel = ({ floors, activeFloorId, onToggleLayer, onSelectItem, reset
             newItemZIndex[targetItemId] = draggedZIndex;
             
             // Actualizar estado (esto se manejará desde el componente padre)
-            console.log('Items swapped:', { draggedItemId, targetItemId, draggedZIndex, targetZIndex });
+            // Items swapped
         }
     };
 
@@ -1000,7 +991,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     // Load map items from database
     const loadMapItems = useCallback(async (floorId) => {
         try {
-            console.log('Cargando elementos para piso:', floorId, 'empresa:', activeCompany?.id);
+            // Cargando elementos para piso
             
             // Cargar elementos filtrados por piso y empresa
             const { data: mapItems, error } = await supabase
@@ -1014,9 +1005,9 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 return [];
             }
 
-            console.log(`Elementos encontrados en BD para piso ${floorId}:`, mapItems?.length || 0);
+            // Elementos encontrados en BD
             if (mapItems && mapItems.length > 0) {
-                console.log('Elementos cargados:', mapItems.map(item => ({ id: item.id, name: item.name, type: item.item_type })));
+                // Elementos cargados
             }
 
             if (!mapItems || mapItems.length === 0) {
@@ -2640,13 +2631,13 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     const performAutosave = useCallback(async () => {
         if (!activeFloorId || !activeCompany?.id) return;
         
-        console.log('🔄 Iniciando auto-guardado del canvas...');
+        // Iniciando auto-guardado
         setAutosaveStatus('saving');
         
         try {
             const currentFloor = floors.find(f => f.id === activeFloorId);
             if (!currentFloor || !currentFloor.items) {
-                console.log('No hay elementos para guardar');
+                // No hay elementos para guardar
                 setAutosaveStatus('idle');
                 return;
             }
@@ -2692,7 +2683,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             }
 
             lastAutosaveTime.current = new Date();
-            console.log('✅ Auto-guardado completado exitosamente');
+            // Auto-guardado completado
             setAutosaveStatus('saved');
             
             // Reset status after 2 seconds
@@ -2715,7 +2706,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     const scheduleAutosave = useCallback(() => {
         // No programar auto-guardado si la ventana no está visible
         if (document.hidden) {
-            console.log('📅 Auto-guardado omitido - ventana no visible');
+            // Auto-guardado omitido
             return;
         }
         

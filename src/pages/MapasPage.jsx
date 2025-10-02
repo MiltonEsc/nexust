@@ -109,14 +109,7 @@ const MapasPage = () => {
       const newX = Math.round(x || equipo.x_coordinate);
       const newY = Math.round(y || equipo.y_coordinate);
 
-      console.log('Moviendo equipo:', {
-        id: equipo.id,
-        oldX: equipo.x_coordinate,
-        oldY: equipo.y_coordinate,
-        newX,
-        newY,
-        showToast
-      });
+      // Moviendo equipo
 
       // Actualizar el estado local primero para evitar parpadeo visual
       const updatedEquipo = {

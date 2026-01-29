@@ -1,0 +1,21 @@
+services:
+  db-nexust:
+    image: postgres:15-alpine
+    container_name: db-nexust
+    restart: always
+    environment:
+      - POSTGRES_USER=admon
+      - POSTGRES_PASSWORD=5up3r8r1x
+      - POSTGRES_DB=superbrix_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+
+  app-nexust:
+    build: .
+    container_name: conten-nexust
+    ports:
+      - "5000:80" # El puerto que elegiste anteriormente
+    depends_on:
+      - db-nexust

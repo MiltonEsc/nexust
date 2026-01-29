@@ -27,7 +27,7 @@ function Header() {
     // Se eliminó la línea "window.location.reload();"
   };
 
-  const gestionRoutes = ["/hojas-de-vida", "/inventario", "/mantenimiento"];
+  const gestionRoutes = ["/hojas-de-vida", "/inventario", "/mantenimiento", "/compras", "/proveedores"];
 
   useEffect(() => {
     const fetchNotifs = async () => {
@@ -258,10 +258,16 @@ function Header() {
                 Mantenimiento
               </Link>
               <Link
-                to="/mapas"
+                to="/compras"
                 className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
               >
-                Mapas
+                Compras
+              </Link>
+              <Link
+                to="/proveedores"
+                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                Proveedores
               </Link>
             </Dropdown>
 
@@ -274,10 +280,17 @@ function Header() {
             </Link>
 
             <Link
-              to="/ia"
-              className={`nav-link ${pathname === "/ia" ? "active" : ""}`}
+              to="/mapas"
+              className={`nav-link ${pathname === "/mapas" ? "active" : ""}`}
             >
-              IA & Automatización
+              Mapas
+            </Link>
+
+            <Link
+              to="/empresas"
+              className={`nav-link ${pathname === "/empresas" ? "active" : ""}`}
+            >
+              Empresas
             </Link>
           </nav>
 
@@ -344,7 +357,7 @@ function Header() {
           </div>
         </div>
       </div>
-    </header>
+    </header >
   );
 }
 

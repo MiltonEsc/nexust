@@ -41,7 +41,7 @@ function RegistroPage() {
   if (loading) return <p className="p-4">Cargando datos del registro...</p>;
 
   return (
-    <div className="p-6 sm:p-8 bg-white rounded-xl shadow-lg max-w-4xl mx-auto">
+    <div className="p-6 sm:p-8 bg-white rounded-xl shadow-lg max-w-7xl mx-auto">
       <h1 className="text-2xl font-semibold mb-6 border-b pb-3">
         {isEditing ? "Editar Hoja de Vida" : "Nuevo Registro de Usuario"}
       </h1>

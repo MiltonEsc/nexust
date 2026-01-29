@@ -2,7 +2,6 @@ import React, { useEffect } from "react"; // <-- CORRECCIÓN APLICADA AQUÍ
 import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { AppProvider, useAppContext } from "./context/AppContext";
 import ConfirmationModal from "./components/common/ConfirmationModal";
-import ChatbotWidget from "./components/ai/ChatbotWidget";
 
 // Layouts & Pages
 import AuthPage from "./pages/AuthPage";
@@ -17,7 +16,7 @@ import MantenimientoPage from "./pages/MantenimientoPage";
 import ReportesPage from "./pages/ReportesPage";
 import EmpresasPage from "./pages/EmpresasPage";
 import MapasPage from "./pages/MapasPage";
-import AIPage from "./pages/AIPage";
+import ComprasPage from "./pages/ComprasPage";
 
 // Componente interno para manejar las redirecciones y la lógica de rutas
 function AppRoutes() {
@@ -60,7 +59,7 @@ function AppRoutes() {
         <Route path="mapas" element={<MapasPage />} />
         <Route path="reportes" element={<ReportesPage />} />
         <Route path="empresas" element={<EmpresasPage />} />
-        <Route path="ia" element={<AIPage />} />
+        <Route path="compras" element={<ComprasPage />} />
       </Route>
     </Routes>
   );
@@ -82,7 +81,6 @@ function App() {
       />
       <AppRoutes />
       <ConfirmationModal />
-      <ChatbotWidget userId="user_123" context={{}} />
     </AppProvider>
   );
 }

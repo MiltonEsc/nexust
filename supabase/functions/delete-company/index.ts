@@ -1,5 +1,6 @@
 // En supabase/functions/delete-company/index.ts
-
+console.log("🔑 URL:", Deno.env.get('SUPABASE_URL'));
+console.log("🔑 SERVICE ROLE:", Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ? "Cargada ✅" : "Falta ❌");
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'

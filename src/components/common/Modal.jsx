@@ -1,6 +1,7 @@
 // src/components/common/Modal.jsx
 
 import React, { useEffect } from "react";
+import { createPortal } from "react-dom";
 
 // Este componente recibe 4 props:
 // isOpen: un booleano para saber si se debe mostrar.
@@ -25,8 +26,8 @@ function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl' }) {
   // Si no está abierto, no renderizamos nada.
   if (!isOpen) return null;
 
-  return (
-    // Portal-like structure to render at the top level
+  // Portal-like structure to render at the top level
+  return createPortal(
     <>
       {/* 1. El Fondo Opaco (Backdrop) */}
       <div
@@ -52,7 +53,8 @@ function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl' }) {
           <div>{children}</div>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }
 

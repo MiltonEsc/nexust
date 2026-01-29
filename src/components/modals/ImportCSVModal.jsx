@@ -54,7 +54,7 @@ function ImportCSVModal({
             const date = new Date(value);
             value = isNaN(date) ? null : date.toISOString();
           }
-          if (value && (header === "costo" || header === "stock")) {
+          if (value && (header === "costo" || header === "stock" || header === "valor")) {
             value = parseFloat(value) || 0;
           }
           if (value && header === "induccion_tic") {
@@ -114,6 +114,12 @@ function ImportCSVModal({
         sampleData =
           "Microsoft Office,2021,50,F-S001,2023-01-01,2025-01-01,5000.00";
         break;
+      case "compras":
+        sampleHeaders =
+          "fecha_ingreso,descripcion,cantidad,cantidad_stock,marca,modelo,serial,proveedor,numero_proveedor,area_destino,usuario_asignado,orden_compra,valor,vida_util";
+        sampleData =
+          "2023-10-01,Laptop Dell,2,2,Dell,Latitude 5420,ABC-123,Proveedor SA,12345,TI,Juan Perez,OC-222,1500.00,3 años";
+        break;
     }
 
     const csvContent = `${sampleHeaders}\n${sampleData}`;
@@ -138,6 +144,8 @@ function ImportCSVModal({
         return "tipo,marca,modelo,numero_serie,estado,numero_factura,fecha_compra,fecha_vencimiento_garantia,costo";
       case "software":
         return "nombre,version,stock,numero_factura,fecha_compra,fecha_vencimiento,costo";
+      case "compras":
+        return "fecha_ingreso,descripcion,cantidad,cantidad_stock,marca,modelo,serial,proveedor,numero_proveedor,area_destino,usuario_asignado,orden_compra,valor,vida_util";
       default:
         return "Cargando...";
     }
@@ -152,9 +160,11 @@ function ImportCSVModal({
             Asegúrate que tu archivo CSV tenga las siguientes columnas en este
             orden exacto:
           </p>
-          <code className="text-xs bg-gray-100 p-2 rounded-md block mt-2 whitespace-pre-wrap">
-            {getHeadersForTab()}
-          </code>
+          <div className="overflow-x-auto">
+            <code className="text-xs bg-gray-100 p-2 rounded-md block mt-2 whitespace-pre-wrap break-words">
+              {getHeadersForTab()}
+            </code>
+          </div>
           <button
             onClick={handleDownloadSample}
             className="text-sm text-blue-600 hover:underline mt-2"

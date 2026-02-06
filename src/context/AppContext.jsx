@@ -118,6 +118,33 @@ export function AppProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Mantener viva la sesiÃ³n en segundo plano
+    const refreshSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session) {
+        setSession(data.session);
+      }
+    };
+
+    const intervalId = setInterval(refreshSession, 5 * 60 * 1000); // cada 5 min
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshSession();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
     if (session) {
       fetchUserCompanies();
     }

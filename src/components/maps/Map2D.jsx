@@ -2980,7 +2980,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             });
 
             setHasUnsavedChanges(true);
-            // scheduleAutosave(); // DESACTIVADO - Solo guardado manual
+            scheduleAutosave();
         } catch (error) {
             console.error('❌ Error adding item:', error);
             alert(`Error al crear elemento: ${error.message}`);
@@ -3070,6 +3070,17 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         }
     }, [activeFloorId, activeCompany?.id, floors, layers, saveLayerOrderToDatabase, supabase]);
 
+    // Auto-guardado periódico si hay cambios
+    useEffect(() => {
+        const intervalId = setInterval(() => {
+            if (hasUnsavedChanges) {
+                performAutosave();
+                setHasUnsavedChanges(false);
+            }
+        }, 60000); // cada 60s
+        return () => clearInterval(intervalId);
+    }, [hasUnsavedChanges, performAutosave]);
+
     // Función para programar auto-guardado
     const scheduleAutosave = useCallback(() => {
         // No programar auto-guardado si la ventana no está visible
@@ -3117,7 +3128,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
         // Marcar cambios como no guardados (auto-guardado desactivado)
         setHasUnsavedChanges(true);
-        // scheduleAutosave(); // DESACTIVADO - Solo guardado manual
+        scheduleAutosave();
+        scheduleAutosave();
 
         // Clear existing timeout for this item
         if (updateTimeouts.current[id]) {
@@ -3174,6 +3186,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         }
 
         setHasUnsavedChanges(true);
+        scheduleAutosave();
 
         try {
             const dbUpdateData = {};
@@ -3235,9 +3248,9 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 return newLayers;
             });
 
-            // Marcar cambios como no guardados (auto-guardado desactivado)
+            // Marcar cambios como no guardados
             setHasUnsavedChanges(true);
-            // scheduleAutosave(); // DESACTIVADO - Solo guardado manual
+            scheduleAutosave();
 
         } catch (error) {
             console.error('Error deleting item:', error);

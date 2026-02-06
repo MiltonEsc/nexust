@@ -36,7 +36,7 @@ function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl' }) {
       ></div>
 
       {/* 2. El Contenedor Principal del Modal */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-50 flex items-start justify-center p-4 py-20">
         <div className={`bg-white p-6 rounded-lg shadow-xl relative w-full ${maxWidth}`}>
           {/* Encabezado del Modal con Título y Botón de Cierre */}
           <div className="flex justify-between items-center border-b pb-3 mb-4">

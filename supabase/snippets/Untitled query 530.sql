@@ -1,5 +1,1 @@
--- Ver todos los items y su estado de bloqueo
-SELECT id, name, item_type, is_locked, company_id
-FROM map_items
-ORDER BY updated_at DESC
-LIMIT 20;
+ALTER TABLE map_floors ADD COLUMN IF NOT EXISTS background_locked BOOLEAN DEFAULT FALSE;

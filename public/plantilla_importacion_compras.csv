@@ -1,0 +1,2 @@
+fecha_ingreso,descripcion,cantidad,cantidad_stock,marca,modelo,serial,proveedor,numero_proveedor,area_destino,usuario_asignado,orden_compra,valor,vida_util
+2023-10-01,Laptop Dell,2,2,Dell,Latitude 5420,ABC-123,Proveedor SA,12345,TI,Juan Perez,OC-222,1500.00,3 años

@@ -155,9 +155,6 @@ function EquipoForm({ itemToEdit, onSuccess }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <h3 className="text-xl font-semibold mb-4">
-        {itemToEdit ? "Editar Equipo" : "Añadir Equipo"}
-      </h3>
 
       <h4 className="text-lg font-medium text-gray-800 border-b pb-2">
         Detalles del Equipo

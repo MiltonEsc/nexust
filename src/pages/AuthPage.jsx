@@ -4,15 +4,20 @@ import React, { useState } from "react";
 import { supabase } from "../supabaseClient";
 
 function AuthPage() {
-  // Estado para alternar entre login y registro
-  const [showRegister, setShowRegister] = useState(false);
-  // Estado para mensajes de error
+  // Estado para alternar entre login, registro y olvido de contraseña
+  // Valores: 'login', 'register', 'forgot'
+  const [authView, setAuthView] = useState("login");
+
+  // Estado para mensajes de error y éxito
   const [errorMsg, setErrorMsg] = useState("");
-  // Estado para el feedback de carga (ej. en botones)
+  const [successMsg, setSuccessMsg] = useState("");
+
+  // Estado para el feedback de carga
   const [loading, setLoading] = useState(false);
 
-  // Estados para controlar los inputs de cada formulario
+  // Estados para controlar los inputs
   const [loginData, setLoginData] = useState({ email: "", password: "" });
+  const [forgotEmail, setForgotEmail] = useState("");
   const [registerData, setRegisterData] = useState({
     username: "",
     email: "",
@@ -34,13 +39,34 @@ function AuthPage() {
     try {
       setLoading(true);
       setErrorMsg("");
+      setSuccessMsg("");
       const { data, error } = await supabase.auth.signInWithPassword({
         email: loginData.email,
         password: loginData.password,
       });
       if (error) throw error;
       console.log("Inicio de sesión exitoso:", data);
-      // En la próxima lección haremos que esto redirija al dashboard.
+    } catch (error) {
+      setErrorMsg(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      setLoading(true);
+      setErrorMsg("");
+      setSuccessMsg("");
+
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      if (error) throw error;
+
+      setSuccessMsg("¡Enlace enviado! Revisa tu correo electrónico para restablecer tu contraseña.");
     } catch (error) {
       setErrorMsg(error.message);
     } finally {
@@ -54,6 +80,7 @@ function AuthPage() {
     try {
       setLoading(true);
       setErrorMsg("");
+      setSuccessMsg("");
       const { data, error } = await supabase.auth.signUp({
         email: registerData.email,
         password: registerData.password,
@@ -66,7 +93,7 @@ function AuthPage() {
       if (error) throw error;
       alert("¡Registro exitoso! Revisa tu correo para confirmar la cuenta.");
       // Regresamos al login después de un registro exitoso
-      setShowRegister(false);
+      setAuthView("login");
     } catch (error) {
       setErrorMsg(error.message);
     } finally {
@@ -77,6 +104,7 @@ function AuthPage() {
   const handleGoogleLogin = async () => {
     try {
       setErrorMsg("");
+      setSuccessMsg("");
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
       });
@@ -89,7 +117,7 @@ function AuthPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-200">
       {/* Contenedor del Login */}
-      <div className={`w-full max-w-md ${showRegister ? "hidden" : "block"}`}>
+      <div className={`w-full max-w-md ${authView === "login" ? "block" : "hidden"}`}>
         <div className="space-y-6 rounded-xl bg-white p-8 shadow-lg">
           <h1 className="text-center text-3xl font-bold text-gray-900">
             Iniciar Sesión
@@ -128,6 +156,19 @@ function AuthPage() {
                 value={loginData.password}
                 onChange={handleLoginChange}
               />
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthView("forgot");
+                  setErrorMsg("");
+                  setSuccessMsg("");
+                }}
+                className="text-xs font-medium text-indigo-600 hover:text-indigo-500"
+              >
+                ¿Olvidaste tu contraseña?
+              </button>
             </div>
             {errorMsg && (
               <p className="text-center text-sm text-red-600">{errorMsg}</p>
@@ -181,8 +222,9 @@ function AuthPage() {
               href="#"
               onClick={(e) => {
                 e.preventDefault();
-                setShowRegister(true);
+                setAuthView("register");
                 setErrorMsg("");
+                setSuccessMsg("");
               }}
               className="font-medium text-indigo-600 hover:text-indigo-500"
             >
@@ -192,8 +234,67 @@ function AuthPage() {
         </div>
       </div>
 
+      {/* Contenedor de Olvido de Contraseña */}
+      <div className={`w-full max-w-md ${authView === "forgot" ? "block" : "hidden"}`}>
+        <div className="space-y-6 rounded-xl bg-white p-8 shadow-lg">
+          <h1 className="text-center text-3xl font-bold text-gray-900">
+            Recuperar Contraseña
+          </h1>
+          <p className="text-center text-sm text-gray-600">
+            Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu cuenta.
+          </p>
+          <form onSubmit={handleForgotSubmit} className="space-y-4">
+            <div>
+              <label
+                htmlFor="forgot-email"
+                className="text-sm font-medium text-gray-700"
+              >
+                Email
+              </label>
+              <input
+                id="forgot-email"
+                name="email"
+                type="email"
+                required
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+              />
+            </div>
+            {errorMsg && (
+              <p className="text-center text-sm text-red-600 font-medium">{errorMsg}</p>
+            )}
+            {successMsg && (
+              <p className="text-center text-sm text-green-600 font-bold bg-green-50 p-2 rounded-md">{successMsg}</p>
+            )}
+            <button
+              type="submit"
+              disabled={loading || successMsg}
+              className="w-full rounded-md bg-indigo-600 py-2 px-4 font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:bg-indigo-400"
+            >
+              {loading ? "Enviando..." : "Enviar enlace de recuperación"}
+            </button>
+          </form>
+          <p className="text-center text-sm text-gray-600">
+            O vuelve al{" "}
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                setAuthView("login");
+                setErrorMsg("");
+                setSuccessMsg("");
+              }}
+              className="font-medium text-indigo-600 hover:text-indigo-500"
+            >
+              Inicio de sesión
+            </a>
+          </p>
+        </div>
+      </div>
+
       {/* Contenedor del Registro */}
-      <div className={`w-full max-w-md ${!showRegister ? "hidden" : "block"}`}>
+      <div className={`w-full max-w-md ${authView === "register" ? "block" : "hidden"}`}>
         <div className="space-y-6 rounded-xl bg-white p-8 shadow-lg">
           <h1 className="text-center text-3xl font-bold text-gray-900">
             Crear Cuenta
@@ -267,8 +368,9 @@ function AuthPage() {
               href="#"
               onClick={(e) => {
                 e.preventDefault();
-                setShowRegister(false);
+                setAuthView("login");
                 setErrorMsg("");
+                setSuccessMsg("");
               }}
               className="font-medium text-indigo-600 hover:text-indigo-500"
             >

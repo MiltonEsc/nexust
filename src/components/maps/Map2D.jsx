@@ -1,15 +1,33 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { useBlocker, Link, useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAppContext } from '../../context/AppContext';
 import LayerManager from './LayerManager';
+import {
+    ArrowsPointingOutIcon,
+    ArrowsPointingInIcon,
+    ArrowsUpDownIcon,
+    PlusIcon,
+    TrashIcon,
+    XMarkIcon,
+    Square2StackIcon,
+    CpuChipIcon,
+    CloudArrowUpIcon,
+    ArrowPathIcon,
+    CheckIcon,
+    ExclamationTriangleIcon,
+    RectangleGroupIcon,
+    ViewfinderCircleIcon,
+    LockClosedIcon,
+    LockOpenIcon
+} from "@heroicons/react/24/outline";
 
 // === ICONS (for equipment types) ===
 const ICONS = {
     default: (props) => (
         <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
-            <path d="M6 14V8a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v6"></path>
-            <circle cx="12" cy="18" r="1"></circle>
+            <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+            <line x1="8" y1="19" x2="16" y2="19"></line>
         </svg>
     ),
     server: (props) => (
@@ -53,7 +71,9 @@ const LAYERS = {
 };
 
 // === COMPONENT: Resizable and Draggable Item ===
-const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleClick, isSelected, isMultiSelected, scale, getFinalZIndex, isLayerVisible, getLayerOpacity, isLayerLocked, onMultiSelect, onMoveSelectedElements, selectedIds, floors, activeFloorId, setSelectedItemsInitialPositions, isSpacePressed }) => {
+// === COMPONENT: Resizable and Draggable Item ===
+// === COMPONENT: Resizable and Draggable Item ===
+const DraggableResizableItem = memo(({ children, data, onUpdate, onSelect, onDoubleClick, onContextMenu, isSelected, isMultiSelected, scaleRef, getFinalZIndex, isLayerVisible, getLayerOpacity, isLayerLocked, onMultiSelect, onMoveSelectedElements, onCommitMultiMove, selectedIdsRef, activeFloorItemsRef, setSelectedItemsInitialPositions, isSpacePressed, snapToGrid, gridSize, multiDragDelta }) => {
     const itemRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
@@ -62,17 +82,21 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
     const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
     const [tempPosition, setTempPosition] = useState({ x: data.x, y: data.y });
     const [tempSize, setTempSize] = useState({ width: data.width, height: data.height });
+    const [isRotating, setIsRotating] = useState(false);
+    const [tempRotation, setTempRotation] = useState(data.rotation || 0);
+    const [rotationStartAngle, setRotationStartAngle] = useState(0);
     const animationFrameRef = useRef(null);
     const lastUpdateTime = useRef(0);
     const updateThrottle = 16; // ~60fps
 
     // Sincronizar posiciones temporales con data cuando no estamos arrastrando
     useEffect(() => {
-        if (!isDragging && !isResizing) {
+        if (!isDragging && !isResizing && !isRotating) {
             setTempPosition({ x: data.x, y: data.y });
             setTempSize({ width: data.width, height: data.height });
+            setTempRotation(data.rotation || 0);
         }
-    }, [data.x, data.y, data.width, data.height, isDragging, isResizing]);
+    }, [data.x, data.y, data.width, data.height, data.rotation, isDragging, isResizing, isRotating]);
 
     // Cleanup animation frame al desmontar
     useEffect(() => {
@@ -125,12 +149,13 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             }
 
             // Si hay selección múltiple real (más de 1 elemento), guardar las posiciones iniciales
-            if (isMultiSelected && onMoveSelectedElements && selectedIds.size > 1) {
-                const currentFloor = floors.find(f => f.id === activeFloorId);
-                if (currentFloor) {
+            if (isMultiSelected && onMoveSelectedElements) {
+                const currentItems = activeFloorItemsRef?.current || [];
+                const selected = selectedIdsRef?.current;
+                if (currentItems.length && selected && selected.size > 1) {
                     const initialPositions = new Map();
-                    currentFloor.items.forEach(item => {
-                        if (selectedIds.has(item.id)) {
+                    currentItems.forEach(item => {
+                        if (selected.has(item.id)) {
                             initialPositions.set(item.id, { x: item.x, y: item.y });
                         }
                     });
@@ -155,22 +180,34 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             });
             setTempSize({ width: data.width, height: data.height });
             setTempPosition({ x: data.x, y: data.y });
+        } else if (actionType === 'rotate') {
+            if (!isSelected) onSelect(data);
+            setIsRotating(true);
+
+            // Calcular el ángulo inicial entre el centro del elemento y el ratón
+            const rect = itemRef.current.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const angle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI);
+
+            setRotationStartAngle(angle - (data.rotation || 0));
         }
-    }, [data, onSelect, isLayerLocked, isSpacePressed]);
+    }, [data, onSelect, isLayerLocked, isSpacePressed, isSelected]);
 
     const handleMouseMove = useCallback((e) => {
+        const currentScale = scaleRef?.current || 1;
         if (isDragging) {
-            const newX = data.x + (e.clientX - dragStart.x) / scale;
-            const newY = data.y + (e.clientY - dragStart.y) / scale;
+            let newX = data.x + (e.clientX - dragStart.x) / currentScale;
+            let newY = data.y + (e.clientY - dragStart.y) / currentScale;
 
-            // Debug para elementos recién creados
-            const isNewElement = data.name.includes('Nueva') || data.name.includes('Vacío');
-            if (isNewElement) {
-                // Moviendo elemento nuevo
+            // Aplicar Snap to Grid
+            if (snapToGrid) {
+                newX = Math.round(newX / gridSize) * gridSize;
+                newY = Math.round(newY / gridSize) * gridSize;
             }
 
             // Si hay selección múltiple real (más de 1 elemento), mover todos los elementos seleccionados
-            if (isMultiSelected && onMoveSelectedElements && selectedIds.size > 1) {
+            if (isMultiSelected && onMoveSelectedElements) {
                 // Calcular el delta desde la posición inicial del elemento que se está arrastrando
                 const deltaX = newX - data.x;
                 const deltaY = newY - data.y;
@@ -178,19 +215,18 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
                 // Actualizar la posición visual temporal inmediatamente para feedback visual
                 setTempPosition({ x: newX, y: newY });
 
-                // Throttling inteligente: solo actualizar cada 16ms (~60fps) para evitar bucles
+                // Throttling inteligente
                 const now = Date.now();
                 if (now - lastUpdateTime.current >= updateThrottle) {
                     onMoveSelectedElements(deltaX, deltaY);
                     lastUpdateTime.current = now;
                 }
             } else {
-                // Movimiento individual - sin throttling para máxima responsividad
                 setTempPosition({ x: newX, y: newY });
             }
         } else if (isResizing) {
-            const deltaX = (e.clientX - resizeStart.x) / scale;
-            const deltaY = (e.clientY - resizeStart.y) / scale;
+            const deltaX = (e.clientX - resizeStart.x) / currentScale;
+            const deltaY = (e.clientY - resizeStart.y) / currentScale;
 
             let newWidth = resizeStart.width;
             let newHeight = resizeStart.height;
@@ -199,45 +235,68 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
 
             // Calcular nuevas dimensiones y posición según la dirección
             switch (resizeDirection) {
-                case 'se': // Esquina inferior derecha (comportamiento original)
-                    newWidth = Math.max(50, resizeStart.width + deltaX);
-                    newHeight = Math.max(50, resizeStart.height + deltaY);
+                case 'se':
+                    newWidth = Math.max(gridSize, resizeStart.width + deltaX);
+                    newHeight = Math.max(gridSize, resizeStart.height + deltaY);
                     break;
-                case 'sw': // Esquina inferior izquierda
-                    newWidth = Math.max(50, resizeStart.width - deltaX);
-                    newHeight = Math.max(50, resizeStart.height + deltaY);
+                case 'sw':
+                    newWidth = Math.max(gridSize, resizeStart.width - deltaX);
+                    newHeight = Math.max(gridSize, resizeStart.height + deltaY);
                     newX = resizeStart.elementX + deltaX;
-                    if (newWidth === 50) newX = resizeStart.elementX + resizeStart.width - 50;
+                    if (newWidth === gridSize) newX = resizeStart.elementX + resizeStart.width - gridSize;
                     break;
-                case 'ne': // Esquina superior derecha
-                    newWidth = Math.max(50, resizeStart.width + deltaX);
-                    newHeight = Math.max(50, resizeStart.height - deltaY);
+                case 'ne':
+                    newWidth = Math.max(gridSize, resizeStart.width + deltaX);
+                    newHeight = Math.max(gridSize, resizeStart.height - deltaY);
                     newY = resizeStart.elementY + deltaY;
-                    if (newHeight === 50) newY = resizeStart.elementY + resizeStart.height - 50;
+                    if (newHeight === gridSize) newY = resizeStart.elementY + resizeStart.height - gridSize;
                     break;
-                case 'nw': // Esquina superior izquierda
-                    newWidth = Math.max(50, resizeStart.width - deltaX);
-                    newHeight = Math.max(50, resizeStart.height - deltaY);
+                case 'nw':
+                    newWidth = Math.max(gridSize, resizeStart.width - deltaX);
+                    newHeight = Math.max(gridSize, resizeStart.height - deltaY);
                     newX = resizeStart.elementX + deltaX;
                     newY = resizeStart.elementY + deltaY;
-                    if (newWidth === 50) newX = resizeStart.elementX + resizeStart.width - 50;
-                    if (newHeight === 50) newY = resizeStart.elementY + resizeStart.height - 50;
+                    if (newWidth === gridSize) newX = resizeStart.elementX + resizeStart.width - gridSize;
+                    if (newHeight === gridSize) newY = resizeStart.elementY + resizeStart.height - gridSize;
                     break;
-                default: // Fallback al comportamiento original
-                    newWidth = Math.max(50, resizeStart.width + deltaX);
-                    newHeight = Math.max(50, resizeStart.height + deltaY);
-                    break;
+            }
+
+            // Aplicar Snap to Grid al redimensionar
+            if (snapToGrid) {
+                newWidth = Math.round(newWidth / gridSize) * gridSize;
+                newHeight = Math.round(newHeight / gridSize) * gridSize;
+                newX = Math.round(newX / gridSize) * gridSize;
+                newY = Math.round(newY / gridSize) * gridSize;
             }
 
             setTempSize({ width: newWidth, height: newHeight });
             setTempPosition({ x: newX, y: newY });
+        } else if (isRotating) {
+            const rect = itemRef.current.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const currentAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI);
+
+            let newRotation = (currentAngle - rotationStartAngle) % 360;
+
+            // Snap rotation to 15 degree increments if shift is pressed or by default?
+            // Let's snap to 15 degrees if snapToGrid is active
+            if (snapToGrid) {
+                newRotation = Math.round(newRotation / 15) * 15;
+            }
+
+            setTempRotation(newRotation);
         }
-    }, [isDragging, isResizing, dragStart, resizeStart, resizeDirection, isMultiSelected, onMoveSelectedElements, data.x, data.y, selectedIds.size, updateThrottle, scale]);
+    }, [isDragging, isResizing, isRotating, dragStart, resizeStart, rotationStartAngle, resizeDirection, isMultiSelected, onMoveSelectedElements, data.x, data.y, data.name, updateThrottle, snapToGrid, gridSize, scaleRef]);
 
     const handleMouseUp = useCallback(() => {
         if (isDragging) {
-            // Actualizar BD con la posición final (redondeada a enteros)
-            onUpdate(data.id, { x: Math.round(tempPosition.x), y: Math.round(tempPosition.y) });
+            if (isMultiSelected && onCommitMultiMove) {
+                onCommitMultiMove();
+            } else {
+                // Actualizar BD con la posición final (redondeada a enteros)
+                onUpdate(data.id, { x: Math.round(tempPosition.x), y: Math.round(tempPosition.y) });
+            }
             setIsDragging(false);
             // Limpiar el tiempo de actualización
             lastUpdateTime.current = 0;
@@ -257,8 +316,11 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             onUpdate(data.id, updateData);
             setIsResizing(false);
             setResizeDirection(null);
+        } else if (isRotating) {
+            onUpdate(data.id, { rotation: Math.round(tempRotation) });
+            setIsRotating(false);
         }
-    }, [isDragging, isResizing, resizeDirection, tempPosition, tempSize, data.id, onUpdate]);
+    }, [isDragging, isResizing, isRotating, resizeDirection, tempPosition, tempSize, tempRotation, data.id, onUpdate]);
 
     const handleDoubleClick = useCallback((e) => {
         e.preventDefault();
@@ -272,14 +334,19 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         e.preventDefault();
         e.stopPropagation();
 
-        // Para áreas bloqueadas, permitir ver propiedades con clic derecho
+        if (onContextMenu) {
+            onContextMenu(data, e);
+            return;
+        }
+
+        // Para ??reas bloqueadas, permitir ver propiedades con clic derecho
         if (data.locked) {
             onSelect(data);
         }
-    }, [data, onSelect]);
+    }, [data, onSelect, onContextMenu]);
 
     useEffect(() => {
-        if (isDragging || isResizing) {
+        if (isDragging || isResizing || isRotating) {
             document.addEventListener('mousemove', handleMouseMove);
             document.addEventListener('mouseup', handleMouseUp);
             return () => {
@@ -287,7 +354,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
                 document.removeEventListener('mouseup', handleMouseUp);
             };
         }
-    }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
+    }, [isDragging, isResizing, isRotating, handleMouseMove, handleMouseUp]);
 
     const selectionClass = isSelected ? `ring-4 ring-offset-2 ring-blue-500` : '';
     const multiSelectionClass = isMultiSelected ? `ring-2 ring-offset-1 ring-purple-400` : '';
@@ -355,11 +422,6 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
 
     // No renderizar si la capa no está visible
     if (!shouldBeVisible()) {
-        console.log(`Elemento no renderizado por capa invisible:`, {
-            id: data.id,
-            name: data.name,
-            type: data.type
-        });
         return null;
     }
 
@@ -373,30 +435,40 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             }}
             className={`absolute ${cursorClass} ${selectionClass} ${multiSelectionClass} transition-all duration-300 ease-out`}
             style={{
-                left: `${(isDragging || isResizing) ? tempPosition.x : data.x}px`,
-                top: `${(isDragging || isResizing) ? tempPosition.y : data.y}px`,
+                left: 0,
+                top: 0,
                 width: `${isResizing ? tempSize.width : data.width}px`,
                 height: `${isResizing ? tempSize.height : data.height}px`,
                 zIndex: getLayer(),
                 position: 'absolute',
                 opacity: getElementOpacity(),
-                willChange: (isDragging || isResizing) ? 'transform, left, top' : 'auto',
-                transition: (isDragging || isResizing) ? 'none' : 'all 0.2s ease-out',
-                transform: (isDragging || isResizing) ? 'scale(1.01)' : 'scale(1)',
-                filter: (isDragging || isResizing) ? 'drop-shadow(0 6px 12px rgba(0, 0, 0, 0.12))' : 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.08))',
+                willChange: (isDragging || isResizing || isRotating || (isMultiSelected && multiDragDelta.x !== 0)) ? 'transform' : 'auto',
+                transition: (isDragging || isResizing || isRotating) ? 'none' : 'all 0.2s ease-out',
+                transform: (() => {
+                    let x = (isDragging || isResizing) ? tempPosition.x : data.x;
+                    let y = (isDragging || isResizing) ? tempPosition.y : data.y;
+                    const r = (isRotating) ? tempRotation : (data.rotation || 0);
+
+                    // Aplicar delta si es parte de una selección múltiple que se está moviendo
+                    if (isMultiSelected && !isDragging && !isRotating && multiDragDelta) {
+                        x += multiDragDelta.x;
+                        y += multiDragDelta.y;
+                    }
+
+                    return `translate3d(${x}px, ${y}px, 0) ${(isDragging || isResizing || isRotating) ? 'scale(1.01)' : 'scale(1)'} rotate(${r}deg)`;
+                })(),
+                filter: (isDragging || isResizing || isRotating) ? 'drop-shadow(0 6px 12px rgba(0, 0, 0, 0.12))' : 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.08))',
             }}
             onMouseDown={(e) => handleMouseDown(e, 'drag')}
             onClick={(e) => {
                 e.stopPropagation();
-                // Solo permitir selección si no está bloqueado y no se está arrastrando
-                if (!isLocked && !isDragging) {
-                    if (onMultiSelect) {
-                        onMultiSelect(data.id, e.ctrlKey || e.metaKey);
+                // Permitir selección incluso si está bloqueado, pero no si se está arrastrando
+                if (!isDragging) {
+                    if (onMultiSelect && (e.ctrlKey || e.metaKey)) {
+                        onMultiSelect(data.id, true);
                     } else {
-                        // Solo seleccionar si no está ya seleccionado
-                        if (!isSelected) {
-                            onSelect(data);
-                        }
+                        // Siempre permitir seleccionar con un clic simple para ver propiedades
+                        onSelect(data);
                     }
                 }
             }}
@@ -405,12 +477,26 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
         >
             {children}
             {isLocked && (
-                <div className="absolute top-1.5 left-1.5 p-1 bg-black/30 rounded-full flex items-center justify-center animate-pulse" title="Elemento bloqueado - Clic derecho para ver propiedades">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-bounce"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                <div className="absolute top-1.5 left-1.5 p-1 bg-black/30 rounded-full flex items-center justify-center" title="Elemento bloqueado - Clic derecho para ver propiedades">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                 </div>
             )}
             {isSelected && !isLocked && (
                 <>
+                    {/* Manija de rotación */}
+                    <div
+                        className="absolute -top-8 left-1/2 w-6 h-6 -ml-3 bg-white border-2 border-indigo-500 rounded-full cursor-alias flex items-center justify-center shadow-lg transition-transform hover:scale-110 z-50"
+                        onMouseDown={(e) => handleMouseDown(e, 'rotate')}
+                        title="Girar elemento"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-600">
+                            <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                            <polyline points="21 3 21 8 16 8"></polyline>
+                        </svg>
+                        {/* Línea conectora */}
+                        <div className="absolute top-6 left-1/2 w-0.5 h-2 bg-indigo-500 -ml-0.25"></div>
+                    </div>
+
                     {/* Manijas de redimensionamiento para áreas - 4 esquinas */}
                     {data.type === 'area' ? (
                         <>
@@ -438,7 +524,7 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
                     ) : (
                         /* Manija única para equipos (comportamiento original) */
                         <div
-                            className="absolute bottom-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize -mr-2 -mb-2 transition-all duration-200 hover:scale-110 hover:shadow-lg animate-pulse"
+                            className="absolute bottom-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize -mr-2 -mb-2 transition-all duration-200 hover:scale-110 hover:shadow-lg"
                             onMouseDown={(e) => handleMouseDown(e, 'resize', 'se')}
                         />
                     )}
@@ -446,16 +532,39 @@ const DraggableResizableItem = ({ children, data, onUpdate, onSelect, onDoubleCl
             )}
         </div>
     );
-};
+}, (prevProps, nextProps) => {
+    // Custom comparison for memoization
+    return (
+        prevProps.isSelected === nextProps.isSelected &&
+        prevProps.isMultiSelected === nextProps.isMultiSelected &&
+        prevProps.isSpacePressed === nextProps.isSpacePressed &&
+        prevProps.snapToGrid === nextProps.snapToGrid &&
+        prevProps.gridSize === nextProps.gridSize &&
+        prevProps.data.x === nextProps.data.x &&
+        prevProps.data.y === nextProps.data.y &&
+        prevProps.data.width === nextProps.data.width &&
+        prevProps.data.height === nextProps.data.height &&
+        prevProps.data.name === nextProps.data.name &&
+        prevProps.data.rotation === nextProps.data.rotation &&
+        prevProps.data.locked === nextProps.data.locked &&
+        prevProps.data.id === nextProps.data.id &&
+        prevProps.multiDragDelta?.x === nextProps.multiDragDelta?.x &&
+        prevProps.multiDragDelta?.y === nextProps.multiDragDelta?.y &&
+        // Verify functions are stable via useCallback in parent
+        prevProps.onUpdate === nextProps.onUpdate &&
+        prevProps.onSelect === nextProps.onSelect &&
+        prevProps.onContextMenu === nextProps.onContextMenu
+    );
+});
 
 
 // === COMPONENT: Area ===
 const Area = memo(({ data, isSelected }) => {
-    const selectionClass = isSelected ? `ring-blue-500` : `shadow-md`;
+    const selectionClass = isSelected ? `ring-blue-500` : ``;
     const textColor = data.textColor || 'text-gray-800';
     return (
         <div style={{ backgroundColor: data.backgroundColor, borderColor: data.borderColor }}
-            className={`w-full h-full p-4 border-2 rounded-lg transition-shadow duration-200 ${selectionClass}`}>
+            className={`w-full h-full p-4 border-2 rounded-lg ${selectionClass}`}>
             <div className={`font-bold ${textColor}`}>{data.name}</div>
         </div>
     );
@@ -489,7 +598,7 @@ const mapDatabaseStatusToMapStatus = (dbStatus) => {
 };
 
 const Equipment = memo(({ data, isSelected }) => {
-    const selectionClass = isSelected ? `ring-blue-500` : 'shadow-lg';
+    const selectionClass = isSelected ? `ring-blue-500` : '';
     const textColor = data.textColor || 'text-gray-700';
     const statusColors = {
         activo: 'bg-green-500',
@@ -501,21 +610,25 @@ const Equipment = memo(({ data, isSelected }) => {
 
     return (
         <div style={{ backgroundColor: data.backgroundColor, borderColor: data.borderColor }}
-            className={`w-full h-full flex flex-col items-center justify-center p-2 border-2 rounded-md transition-shadow duration-200 ${selectionClass}`}>
+            className={`w-full h-full flex flex-col items-center justify-center p-2 border-2 rounded-md ${selectionClass}`}>
 
             <div className="absolute top-1.5 right-1.5 flex items-center">
                 <span className={`w-3 h-3 rounded-full ${statusColors[data.status] || 'bg-gray-400'}`}></span>
             </div>
 
             {data.isEmpty ? (
-                <div className="flex flex-col items-center">
-                    <div className="w-8 h-8 border-2 border-dashed border-gray-400 rounded-lg flex items-center justify-center mb-2">
+                <div className="flex flex-col items-center w-full">
+                    <div className="w-8 h-8 border-2 border-dashed border-gray-400 rounded-lg flex items-center justify-center mb-1 opacity-50">
                         <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
                     </div>
-                    <div className={`text-xs font-semibold text-center ${textColor}`}>Equipo Vacío</div>
-                    <div className={`text-[10px] text-gray-500 text-center`}>Selecciona un equipo</div>
+                    <div className={`text-[11px] font-bold text-center leading-tight truncate w-full ${textColor}`}>
+                        {data.name === 'Nuevo Equipo' ? 'Equipo Vacío' : data.name}
+                    </div>
+                    <div className={`text-[9px] text-gray-500 text-center truncate w-full`}>
+                        {data.assetTag === 'Disponible' ? 'Sin asignar' : data.assetTag}
+                    </div>
                 </div>
             ) : (
                 <>
@@ -734,14 +847,29 @@ const PropertiesPanel = ({ selectedItem, onUpdate, onDelete, availableEquipos = 
             <h3 className="text-xl font-bold text-gray-800 mb-6 border-b pb-2">Editar {itemTypeDisplay[selectedItem.type]}</h3>
             <div className="space-y-4 flex-1">
                 <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-1">Código Interno</label>
-                    <input type="text" name="name" value={selectedItem.name} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+                    <label className="block text-sm font-medium text-gray-600 mb-1">ID Elemento</label>
+                    <div className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-xs font-mono text-gray-400">
+                        {selectedItem.id}
+                    </div>
                 </div>
+                {selectedItem.type === 'area' && (
+                    <div className="border-t pt-2 mt-2">
+                        <label className="block text-sm font-medium text-gray-600 mb-1">Nombre del Área</label>
+                        <input
+                            type="text"
+                            name="name"
+                            value={selectedItem.name}
+                            onChange={handleInputChange}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white font-bold"
+                            placeholder="Ej: Recepción"
+                        />
+                    </div>
+                )}
                 {selectedItem.type === 'equipment' && (
                     <>
                         {selectedItem.isEmpty && (
-                            <div>
-                                <label className="block text-sm font-medium text-gray-600 mb-1">Seleccionar Equipo</label>
+                            <div className="p-3 bg-blue-50 rounded-lg border border-blue-100 mb-2">
+                                <label className="block text-xs font-bold text-blue-700 uppercase mb-2">Vincular con Inventario</label>
                                 <select
                                     name="equipoId"
                                     value={selectedItem.equipoId || ''}
@@ -782,18 +910,44 @@ const PropertiesPanel = ({ selectedItem, onUpdate, onDelete, availableEquipos = 
                                     )}
                                 </select>
                                 {availableEquipos && availableEquipos.length === 0 && (
-                                    <p className="text-xs text-gray-500 mt-1">No hay equipos disponibles en la base de datos</p>
+                                    <p className="text-[10px] text-gray-500 mt-1 italic">No hay más equipos disponibles en inventario</p>
                                 )}
                             </div>
                         )}
+                        <div className="border-t pt-2 mt-2">
+                            <label className="block text-sm font-medium text-gray-600 mb-1">Nombre / Referencia</label>
+                            <input type="text" name="name" value={selectedItem.name} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white font-bold" placeholder="Ej: Escritorio 01" />
+                        </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-600 mb-1">Persona Asignada</label>
-                            <input type="text" name="assetTag" value={selectedItem.assetTag || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+                            <label className="block text-sm font-medium text-gray-600 mb-1">Persona / Etiqueta</label>
+                            <input type="text" name="assetTag" value={selectedItem.assetTag || ''} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white" placeholder="Ej: Juan Pérez o N/A" />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-600 mb-1">Estado</label>
-                            <div className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50">
-                                {selectedItem.originalData?.estado || selectedItem.status || 'Sin estado'}
+                            <div className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 flex items-center justify-between">
+                                <span>{selectedItem.originalData?.estado || selectedItem.status || 'Sin estado'}</span>
+                                {!selectedItem.isEmpty && (
+                                    <button
+                                        onClick={() => {
+                                            onUpdate(selectedItem.id, {
+                                                name: 'Nuevo Equipo',
+                                                assetTag: 'Disponible',
+                                                status: 'activo',
+                                                icon: 'default',
+                                                backgroundColor: '#F3F4F6',
+                                                borderColor: '#D1D5DB',
+                                                textColor: '#374151',
+                                                isEmpty: true,
+                                                equipoId: null,
+                                                originalData: null
+                                            });
+                                        }}
+                                        className="text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded hover:bg-red-200 transition-colors font-bold uppercase"
+                                        title="Desvincular equipo y volver a mostrar el selector"
+                                    >
+                                        Desvincular
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </>
@@ -889,19 +1043,74 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     const [availableStatuses, setAvailableStatuses] = useState([]);
     const [equipos, setEquipos] = useState([]);
     const [showLayersPanel, setShowLayersPanel] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [isFullScreen, setIsFullScreen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [releaseTerm, setReleaseTerm] = useState('');
+    const editorRef = useRef(null);
     const [itemZIndex, setItemZIndex] = useState({}); // z-index individual por item
     const [draggedItem, setDraggedItem] = useState(null);
     const [dragOverItem, setDragOverItem] = useState(null);
+    const [clipboard, setClipboard] = useState(null);
     const [layers, setLayers] = useState({});
     const [selectedLayer, setSelectedLayer] = useState(null);
-    const [clipboard, setClipboard] = useState(null);
+    const [contextMenu, setContextMenu] = useState(null);
+
+    // --- GRID STATES ---
+    const [gridSize, setGridSize] = useState(20);
+    const [snapToGrid, setSnapToGrid] = useState(true);
+    const [showGrid, setShowGrid] = useState(true);
+
+
+    const activeFloor = floors.find(f => f.id === activeFloorId);
+    const scaleRef = useRef(transform.scale);
+    const selectedIdsRef = useRef(selectedIds);
+    const activeFloorItemsRef = useRef([]);
+    const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+
+    // --- PERFORMANCE OPTIMIZATION STATES ---
+    const [multiDragDelta, setMultiDragDelta] = useState({ x: 0, y: 0 });
     const { activeCompany } = useAppContext();
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false); // Rastrear cambios sin guardar
+
 
 
     const isPanning = useRef(false);
     const lastMousePos = useRef({ x: 0, y: 0 });
     const canvasRef = useRef(null);
+
+    useEffect(() => {
+        scaleRef.current = transform.scale;
+    }, [transform.scale]);
+
+    useEffect(() => {
+        selectedIdsRef.current = selectedIds;
+    }, [selectedIds]);
+
+    useEffect(() => {
+        activeFloorItemsRef.current = activeFloor?.items || [];
+    }, [activeFloor?.items]);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const updateSize = () => {
+            setViewportSize({
+                width: canvas.clientWidth || 0,
+                height: canvas.clientHeight || 0
+            });
+        };
+
+        updateSize();
+
+        const resizeObserver = new ResizeObserver(updateSize);
+        resizeObserver.observe(canvas);
+
+        return () => {
+            resizeObserver.disconnect();
+        };
+    }, []);
 
     // Prevent scroll propagation
     useEffect(() => {
@@ -1030,6 +1239,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     backgroundColor: item.background_color || '#F3F4F6',
                     borderColor: item.border_color || '#6B7280',
                     textColor: item.text_color || '#374151',
+                    rotation: item.rotation || 0,
                     locked: item.is_locked || false,
                     is_locked: item.is_locked || false, // Mantener ambas propiedades para consistencia
                     is_visible: item.is_visible !== false, // Usar estado de BD o true por defecto
@@ -1053,7 +1263,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         if (!floorId || !activeCompany?.id) return;
 
         try {
-            console.log('Cargando orden de capas desde BD para piso:', floorId);
             const { data, error } = await supabase
                 .from('map_layers_order')
                 .select('*')
@@ -1078,7 +1287,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                             };
                         }
                     });
-                    console.log('Orden de capas aplicado desde BD:', newLayers);
                     return newLayers;
                 });
             }
@@ -1092,11 +1300,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         if (!floorId || !activeCompany?.id) return;
 
         try {
-            console.log('Guardando orden de capas en BD:', layersToSave);
-            console.log('Tipo de layersToSave:', typeof layersToSave);
-            console.log('Keys de layersToSave:', Object.keys(layersToSave));
-            console.log('Valores de layersToSave:', Object.values(layersToSave));
-
             // Filtrar capas válidas (todas las capas individuales)
             const validLayers = Object.entries(layersToSave).map(([layerId, layer]) => ({
                 id: layerId,
@@ -1113,10 +1316,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 return true;
             });
 
-            console.log('Capas a guardar:', validLayers.map(l => l.id));
-
             if (validLayers.length === 0) {
-                console.log('No hay capas para guardar');
                 return;
             }
 
@@ -1142,8 +1342,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
             if (error) {
                 console.error('Error saving layer order to database:', error);
-            } else {
-                console.log('✅ Orden de capas guardado exitosamente en BD');
             }
         } catch (error) {
             console.error('Error in saveLayerOrderToDatabase:', error);
@@ -1179,8 +1377,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         if (!activeFloorId || !activeCompany?.id) return;
 
         try {
-            console.log('Guardando estado de visibilidad de capa:', { layerId, isVisible });
-
             // Extraer el ID del elemento de la capa (formato: item_${itemId})
             const itemId = layerId.replace('item_', '');
 
@@ -1193,8 +1389,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
             if (error) {
                 console.error('Error saving layer visibility to database:', error);
-            } else {
-                console.log('✅ Estado de visibilidad guardado exitosamente en BD');
             }
         } catch (error) {
             console.error('Error in saveLayerVisibilityToDatabase:', error);
@@ -1206,8 +1400,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         if (!activeFloorId || !activeCompany?.id) return;
 
         try {
-            console.log('Guardando opacidad de capa:', { layerId, opacity });
-
             // Extraer el ID del elemento de la capa (formato: item_${itemId})
             const itemId = layerId.replace('item_', '');
 
@@ -1220,8 +1412,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
             if (error) {
                 console.error('Error saving layer opacity to database:', error);
-            } else {
-                console.log('✅ Opacidad de capa guardada exitosamente en BD');
             }
         } catch (error) {
             console.error('Error in saveLayerOpacityToDatabase:', error);
@@ -1286,14 +1476,11 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     useEffect(() => {
         // Solo cargar datos si la empresa realmente cambió
         if (activeCompany?.id === loadedCompanyRef.current) {
-            console.log('Empresa no cambió, omitiendo carga de datos');
             return;
         }
 
         const loadInitialData = async () => {
             try {
-                console.log('Cargando datos iniciales para empresa:', activeCompany?.id);
-
                 // Marcar que ya se cargaron los datos para esta empresa
                 loadedCompanyRef.current = activeCompany?.id;
 
@@ -1309,8 +1496,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     return;
                 }
 
-                console.log(`Pisos encontrados para empresa ${activeCompany?.id}:`, existingFloors?.length || 0);
-
                 if (existingFloors && existingFloors.length > 0) {
                     // Load items for each floor
                     const floorsWithItems = await Promise.all(
@@ -1319,7 +1504,13 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                             return {
                                 id: floor.id,
                                 name: floor.name,
-                                items: items
+                                items: items,
+                                background_url: floor.background_url,
+                                background_width: floor.background_width,
+                                background_height: floor.background_height,
+                                background_x: floor.background_x,
+                                background_y: floor.background_y,
+                                background_opacity: floor.background_opacity
                             };
                         })
                     );
@@ -1350,7 +1541,13 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     const newFloors = [{
                         id: firstFloorId,
                         name: 'Plano Principal',
-                        items: []
+                        items: [],
+                        background_url: null,
+                        background_x: 0,
+                        background_y: 0,
+                        background_width: 1000,
+                        background_height: 1000,
+                        background_opacity: 0.5
                     }];
                     setFloors(newFloors);
                     setActiveFloorId(firstFloorId);
@@ -1366,6 +1563,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         loadAvailableStatuses();
     }, [activeCompany?.id]);
 
+
+
     // Load layer order when active floor changes
     useEffect(() => {
         if (activeFloorId && activeCompany?.id) {
@@ -1375,16 +1574,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
     // Debug: Log layers state changes (solo en desarrollo)
     useEffect(() => {
-        if (process.env.NODE_ENV === 'development') {
-            console.log('=== ESTADO DE CAPAS ACTUALIZADO ===');
-            console.log('layers:', layers);
-            console.log('Keys de layers:', Object.keys(layers));
-
-            // Log z-index de cada capa
-            Object.entries(layers).forEach(([layerId, layer]) => {
-                console.log(`Capa ${layerId}: zIndex=${layer.zIndex}, name=${layer.itemName || layer.name}`);
-            });
-        }
     }, [layers]);
 
     // Load equipos with registros data (optimizado para evitar recargas)
@@ -1392,12 +1581,10 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     useEffect(() => {
         // Solo cargar equipos si la empresa realmente cambió
         if (activeCompany?.id === loadedEquiposRef.current) {
-            console.log('Empresa no cambió, omitiendo carga de equipos');
             return;
         }
 
         const loadEquipos = async () => {
-            console.log('Cargando equipos para empresa:', activeCompany?.id);
             loadedEquiposRef.current = activeCompany?.id;
             const equiposData = await loadEquiposWithRegistros();
             setEquipos(equiposData);
@@ -1410,7 +1597,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', itemId);
         setDraggedItem(itemId);
-        console.log('Item drag started:', itemId);
     }, []);
 
     const handleItemDragOver = useCallback((e, itemId) => {
@@ -1437,7 +1623,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 newZIndex[draggedItemId] = targetZIndex;
                 newZIndex[targetItemId] = draggedZIndex;
 
-                console.log('Items z-index swapped:', { draggedItemId, targetItemId, draggedZIndex, targetZIndex });
                 return newZIndex;
             });
         }
@@ -1452,7 +1637,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     }, []);
 
     const moveItemUp = useCallback((itemId) => {
-        console.log('Moving item up:', itemId);
         setItemZIndex(prev => {
             // Encontrar el z-index más alto actual
             const allZIndexes = Object.values(prev);
@@ -1460,7 +1644,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
             // Poner el elemento por encima de todos los demás
             const newZIndex = maxZIndex + 1;
-            console.log(`Item ${itemId}: bringing to front with z-index ${newZIndex}`);
             return {
                 ...prev,
                 [itemId]: newZIndex
@@ -1469,7 +1652,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     }, []);
 
     const moveItemDown = useCallback((itemId) => {
-        console.log('Moving item down:', itemId);
         setItemZIndex(prev => {
             // Encontrar el z-index más bajo actual
             const allZIndexes = Object.values(prev);
@@ -1477,7 +1659,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
             // Poner el elemento por debajo de todos los demás
             const newZIndex = minZIndex - 1;
-            console.log(`Item ${itemId}: sending to back with z-index ${newZIndex}`);
             return {
                 ...prev,
                 [itemId]: newZIndex
@@ -1486,13 +1667,11 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     }, []);
 
     const resetItemOrder = useCallback(() => {
-        console.log('Resetting item order');
         setItemZIndex({});
     }, []);
 
     // Debug: Log itemZIndex changes
     useEffect(() => {
-        console.log('itemZIndex updated:', itemZIndex);
     }, [itemZIndex]);
 
     // Funciones para gestionar capas
@@ -1550,9 +1729,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 { ...layer, zIndex: index * 10 }
             ]);
 
-            console.log('Normalizando z-index de capas:');
+            // Normalizar z-index
             normalizedLayers.forEach(([id, layer]) => {
-                console.log(`  ${id}: zIndex=${layer.zIndex}`);
             });
 
             return Object.fromEntries(normalizedLayers);
@@ -1560,8 +1738,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     }, []);
 
     const handleLayerReorder = useCallback(async (layerId, direction, targetLayerId = null) => {
-        console.log('=== REORDENANDO CAPA ===');
-        console.log('layerId:', layerId, 'direction:', direction, 'targetLayerId:', targetLayerId);
+        // Reordenar capa
 
         setLayers(prev => {
             // Ordenar las capas por z-index actual para mantener consistencia
@@ -1588,7 +1765,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
             // No hacer nada si la posición no cambió
             if (currentIndex === newIndex) {
-                console.log('Posición no cambió, manteniendo orden actual');
                 return prev;
             }
 
@@ -1606,14 +1782,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
             const result = Object.fromEntries(updatedEntries);
 
-            console.log('Nuevo orden de capas:');
-            updatedEntries.forEach(([id, layer]) => {
-                console.log(`  ${id}: zIndex=${layer.zIndex}`);
-            });
-
             // Guardar el orden en BD para todas las capas
             if (activeFloorId) {
-                console.log('Guardando orden de capas en BD');
                 saveLayerOrderToDatabase(result, activeFloorId);
             }
 
@@ -1628,7 +1798,28 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
     const handleLayerSelect = useCallback((layerId) => {
         setSelectedLayer(layerId);
-    }, []);
+
+        if (!layerId.startsWith('item_')) return;
+
+        const itemId = layerId.replace('item_', '');
+        const activeFloor = floors.find(f => f.id === activeFloorId);
+        const item = activeFloor?.items.find(i => i.id === itemId);
+        if (!item) return;
+
+        setSelectedId(itemId);
+
+        // Solo asegurar visibilidad/opacidad, sin mover el z-index
+        setLayers(prev => {
+            const next = { ...prev };
+            const current = next[layerId] || {};
+            next[layerId] = {
+                ...current,
+                visible: true,
+                opacity: 1
+            };
+            return next;
+        });
+    }, [floors, activeFloorId]);
 
     const handleLayerDelete = useCallback((layerId) => {
         if (layerId.startsWith('custom-')) {
@@ -1702,9 +1893,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             y: newTransformY
         }));
 
-        // Mostrar feedback visual temporal
-        console.log(`Localizando elemento: ${item.name} en posición (${item.x}, ${item.y})`);
-
+        // Localizando elemento
     }, [floors, activeFloorId, transform.scale]);
 
     // Función para calcular la posición central visible del canvas
@@ -1744,14 +1933,11 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
         const finalZIndex = base + layer + custom;
 
-        console.log(`Z-index para ${itemId}: base=${base}, layer=${layer}, custom=${custom}, final=${finalZIndex}`);
-
         return finalZIndex;
     }, [itemZIndex, layers]);
 
     // Memoizar z-indexes para evitar recálculos innecesarios
     const memoizedZIndexes = useMemo(() => {
-        console.log('🔄 Recalculando z-indexes memoizados');
         const zIndexes = {};
         const currentFloor = floors.find(f => f.id === activeFloorId);
         if (currentFloor) {
@@ -1759,58 +1945,35 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 zIndexes[item.id] = getFinalZIndex(item.id, item.type);
             });
         }
-        console.log('Z-indexes calculados:', zIndexes);
         return zIndexes;
     }, [floors, activeFloorId, getFinalZIndex, layers]);
-
-    // Viewport culling simple - solo renderizar elementos visibles
+    // Viewport culling - solo renderizar elementos visibles segun el viewport real
     const visibleItems = useMemo(() => {
         const currentFloor = floors.find(f => f.id === activeFloorId);
         if (!currentFloor) return [];
 
-        // Obtener dimensiones del viewport del mapa
-        const mapWidth = 1200; // Ajustar según el tamaño real del mapa
-        const mapHeight = 800;  // Ajustar según el tamaño real del mapa
-        const margin = 200; // Margen para elementos parcialmente visibles
+        const viewWidth = viewportSize.width || 0;
+        const viewHeight = viewportSize.height || 0;
+        if (viewWidth === 0 || viewHeight === 0) return currentFloor.items;
 
-        const filteredItems = currentFloor.items.filter(item => {
+        const left = (-transform.x) / transform.scale;
+        const top = (-transform.y) / transform.scale;
+        const right = (viewWidth - transform.x) / transform.scale;
+        const bottom = (viewHeight - transform.y) / transform.scale;
+
+        const margin = 200 / transform.scale;
+
+        return currentFloor.items.filter(item => {
             const itemRight = item.x + item.width;
             const itemBottom = item.y + item.height;
 
-            // Verificar si el elemento está dentro del viewport con margen
-            const isInViewport = item.x < mapWidth + margin &&
-                itemRight > -margin &&
-                item.y < mapHeight + margin &&
-                itemBottom > -margin;
-
-            // Debug: Log elementos que están fuera del viewport
-            if (!isInViewport) {
-                console.log(`Elemento fuera del viewport:`, {
-                    id: item.id,
-                    name: item.name,
-                    x: item.x,
-                    y: item.y,
-                    width: item.width,
-                    height: item.height,
-                    itemRight,
-                    itemBottom,
-                    mapWidth,
-                    mapHeight
-                });
-            }
-
-            return isInViewport;
+            return item.x < right + margin &&
+                itemRight > left - margin &&
+                item.y < bottom + margin &&
+                itemBottom > top - margin;
         });
+    }, [floors, activeFloorId, viewportSize, transform]);
 
-        // Debug: Comparar total vs filtrado
-        if (currentFloor.items.length !== filteredItems.length) {
-            console.log(`Viewport culling: ${currentFloor.items.length} elementos total, ${filteredItems.length} visibles`);
-        }
-
-        return filteredItems;
-    }, [floors, activeFloorId]);
-
-    // Función para verificar si una capa está visible
     const isLayerVisible = useCallback((layerType, itemId = null) => {
         if (itemId) {
             const itemLayerId = `item_${itemId}`;
@@ -1818,11 +1981,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
             // Debug: Log capas ocultas
             if (!isVisible) {
-                console.log(`Capa oculta detectada:`, {
-                    itemId,
-                    layerId: itemLayerId,
-                    layerData: layers[itemLayerId]
-                });
+                // Capa oculta
             }
 
             return isVisible;
@@ -1861,7 +2020,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     x: item.x + 20, // Offset para que no se superponga
                     y: item.y + 20
                 });
-                console.log('Elemento copiado:', item.name);
             }
         }
     }, [floors, activeFloorId]);
@@ -1870,9 +2028,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     const pasteElement = useCallback(async () => {
         if (!clipboard) return;
 
-        console.log('=== INICIANDO PEGADO DE ELEMENTO ===');
-        console.log('activeCompany:', activeCompany);
-        console.log('activeFloorId:', activeFloorId);
+        if (!clipboard) return;
 
         if (!activeCompany?.id) {
             console.error('ERROR: No hay empresa activa para pegar');
@@ -1901,7 +2057,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     }));
 
                     // Guardar todos los elementos en la base de datos
-                    console.log(`Guardando ${newItems.length} elementos pegados en BD...`);
                     const insertPromises = newItems.map(async (item) => {
                         const { error } = await supabase
                             .from('map_items')
@@ -1944,8 +2099,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     const newIds = new Set(newItems.map(item => item.id));
                     setSelectedIds(newIds);
                     setSelectedId(newItems[0].id);
-
-                    console.log(`✅ ${newItems.length} elementos pegados y guardados en BD`);
                 } else {
                     // Pegado individual
                     const newItem = {
@@ -1957,7 +2110,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     };
 
                     // Guardar elemento en la base de datos
-                    console.log('Guardando elemento pegado en BD:', newItem);
                     const { error } = await supabase
                         .from('map_items')
                         .insert({
@@ -1992,10 +2144,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                             : f
                     ));
                     setSelectedId(newItem.id);
-                    console.log('✅ Elemento pegado y guardado en BD:', newItem.name);
+                    setSelectedId(newItem.id);
                 }
-
-                console.log('=== PEGADO DE ELEMENTO COMPLETADO ===');
             } catch (error) {
                 console.error('❌ Error en pegado:', error);
                 alert(`Error al pegar elemento: ${error.message}`);
@@ -2040,48 +2190,184 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     // Estado para almacenar las posiciones iniciales de los elementos seleccionados
     const [selectedItemsInitialPositions, setSelectedItemsInitialPositions] = useState(new Map());
 
-    // Función para mover elementos seleccionados (optimizada para fluidez)
+    // Función para mover elementos seleccionados (Súper optimizada)
     const moveSelectedElements = useCallback((deltaX, deltaY) => {
         if (selectedIds.size === 0) return;
+
+        // En lugar de actualizar floors, solo actualizamos el delta visual
+        setMultiDragDelta({ x: deltaX, y: deltaY });
+    }, [selectedIds.size]);
+
+    // Función para confirmar el movimiento de múltiples elementos
+    const commitMultiMove = useCallback(async () => {
+        if (selectedIds.size === 0 || (multiDragDelta.x === 0 && multiDragDelta.y === 0)) {
+            setMultiDragDelta({ x: 0, y: 0 });
+            return;
+        }
+
+        const deltaX = multiDragDelta.x;
+        const deltaY = multiDragDelta.y;
+
+        // Limpiar delta inmediatamente para evitar saltos visuales
+        setMultiDragDelta({ x: 0, y: 0 });
 
         setFloors(prev => {
             const currentFloor = prev.find(f => f.id === activeFloorId);
             if (!currentFloor) return prev;
 
-            // Optimización: solo procesar elementos seleccionados
             const updatedItems = currentFloor.items.map(item => {
                 if (selectedIds.has(item.id)) {
-                    // Usar la posición inicial + delta para evitar acumulación de errores
                     const initialPos = selectedItemsInitialPositions.get(item.id);
                     if (initialPos) {
-                        const newX = Math.max(0, initialPos.x + deltaX);
-                        const newY = Math.max(0, initialPos.y + deltaY);
-
-                        // Solo crear nuevo objeto si la posición realmente cambió
-                        if (item.x !== newX || item.y !== newY) {
-                            return { ...item, x: newX, y: newY };
-                        }
-                        return item;
-                    } else {
-                        // Fallback: usar posición actual (sin delta para evitar problemas)
-                        console.warn(`Posición inicial no encontrada para elemento ${item.id}, usando posición actual`);
-                        return item;
+                        return {
+                            ...item,
+                            x: Math.round(initialPos.x + deltaX),
+                            y: Math.round(initialPos.y + deltaY)
+                        };
                     }
                 }
-                return item; // No cambiar elementos no seleccionados
+                return item;
             });
 
-            // Solo actualizar si realmente hay cambios
-            const hasChanges = updatedItems.some((item, index) => item !== currentFloor.items[index]);
-            if (!hasChanges) return prev;
+            // Actualizar en lote en la base de datos (promesas paralelas)
+            const floorId = activeFloorId;
+            const itemsToUpdate = updatedItems.filter(item => selectedIds.has(item.id));
 
-            return prev.map(f =>
-                f.id === activeFloorId
-                    ? { ...f, items: updatedItems }
-                    : f
-            );
+            // Disparar las actualizaciones en segundo plano
+            itemsToUpdate.forEach(item => {
+                supabase.from('map_items')
+                    .update({ x: item.x, y: item.y })
+                    .eq('id', item.id)
+                    .then(({ error }) => {
+                        if (error) console.error(`Error actualizando item ${item.id}:`, error);
+                    });
+            });
+
+            return prev.map(f => f.id === activeFloorId ? { ...f, items: updatedItems } : f);
         });
-    }, [selectedIds, activeFloorId, selectedItemsInitialPositions]);
+
+        setHasUnsavedChanges(true);
+    }, [selectedIds, activeFloorId, selectedItemsInitialPositions, multiDragDelta]);
+
+    // --- ALIGNMENT FUNCTIONS ---
+    const alignElements = useCallback((alignment) => {
+        if (selectedIds.size < 2) return;
+
+        setFloors(prev => {
+            const currentFloor = prev.find(f => f.id === activeFloorId);
+            if (!currentFloor) return prev;
+
+            const selectedItems = currentFloor.items.filter(item => selectedIds.has(item.id));
+            if (selectedItems.length < 2) return prev;
+
+            let newValue;
+            switch (alignment) {
+                case 'left':
+                    newValue = Math.min(...selectedItems.map(i => i.x));
+                    break;
+                case 'right':
+                    newValue = Math.max(...selectedItems.map(i => i.x + i.width));
+                    break;
+                case 'top':
+                    newValue = Math.min(...selectedItems.map(i => i.y));
+                    break;
+                case 'bottom':
+                    newValue = Math.max(...selectedItems.map(i => i.y + i.height));
+                    break;
+                case 'centerH':
+                    const minX = Math.min(...selectedItems.map(i => i.x));
+                    const maxX = Math.max(...selectedItems.map(i => i.x + i.width));
+                    newValue = minX + (maxX - minX) / 2;
+                    break;
+                case 'centerV':
+                    const minY = Math.min(...selectedItems.map(i => i.y));
+                    const maxY = Math.max(...selectedItems.map(i => i.y + i.height));
+                    newValue = minY + (maxY - minY) / 2;
+                    break;
+            }
+
+            const updatedItems = currentFloor.items.map(item => {
+                if (selectedIds.has(item.id)) {
+                    let updates = {};
+                    switch (alignment) {
+                        case 'left': updates.x = newValue; break;
+                        case 'right': updates.x = newValue - item.width; break;
+                        case 'top': updates.y = newValue; break;
+                        case 'bottom': updates.y = newValue - item.height; break;
+                        case 'centerH': updates.x = newValue - item.width / 2; break;
+                        case 'centerV': updates.y = newValue - item.height / 2; break;
+                    }
+
+                    if (snapToGrid) {
+                        if (updates.x !== undefined) updates.x = Math.round(updates.x / gridSize) * gridSize;
+                        if (updates.y !== undefined) updates.y = Math.round(updates.y / gridSize) * gridSize;
+                    }
+
+                    // Update in DB
+                    supabase.from('map_items').update(updates).eq('id', item.id).then();
+
+                    return { ...item, ...updates };
+                }
+                return item;
+            });
+
+            return prev.map(f => f.id === activeFloorId ? { ...f, items: updatedItems } : f);
+        });
+        setHasUnsavedChanges(true);
+    }, [selectedIds, activeFloorId, snapToGrid, gridSize]);
+
+    const distributeElements = useCallback((axis) => {
+        if (selectedIds.size < 3) return;
+
+        setFloors(prev => {
+            const currentFloor = prev.find(f => f.id === activeFloorId);
+            if (!currentFloor) return prev;
+
+            const selectedItems = [...currentFloor.items.filter(item => selectedIds.has(item.id))];
+            if (selectedItems.length < 3) return prev;
+
+            if (axis === 'horizontal') {
+                selectedItems.sort((a, b) => a.x - b.x);
+                const minX = selectedItems[0].x;
+                const maxX = selectedItems[selectedItems.length - 1].x;
+                const totalDist = maxX - minX;
+                const step = totalDist / (selectedItems.length - 1);
+
+                const updatedItems = currentFloor.items.map(item => {
+                    if (selectedIds.has(item.id)) {
+                        const index = selectedItems.findIndex(si => si.id === item.id);
+                        let newX = minX + (step * index);
+                        if (snapToGrid) newX = Math.round(newX / gridSize) * gridSize;
+
+                        supabase.from('map_items').update({ x: newX }).eq('id', item.id).then();
+                        return { ...item, x: newX };
+                    }
+                    return item;
+                });
+                return prev.map(f => f.id === activeFloorId ? { ...f, items: updatedItems } : f);
+            } else {
+                selectedItems.sort((a, b) => a.y - b.y);
+                const minY = selectedItems[0].y;
+                const maxY = selectedItems[selectedItems.length - 1].y;
+                const totalDist = maxY - minY;
+                const step = totalDist / (selectedItems.length - 1);
+
+                const updatedItems = currentFloor.items.map(item => {
+                    if (selectedIds.has(item.id)) {
+                        const index = selectedItems.findIndex(si => si.id === item.id);
+                        let newY = minY + (step * index);
+                        if (snapToGrid) newY = Math.round(newY / gridSize) * gridSize;
+
+                        supabase.from('map_items').update({ y: newY }).eq('id', item.id).then();
+                        return { ...item, y: newY };
+                    }
+                    return item;
+                });
+                return prev.map(f => f.id === activeFloorId ? { ...f, items: updatedItems } : f);
+            }
+        });
+        setHasUnsavedChanges(true);
+    }, [selectedIds, activeFloorId, snapToGrid, gridSize]);
 
     // Función para eliminar elementos seleccionados
     const deleteSelectedElements = useCallback(async () => {
@@ -2091,7 +2377,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         if (!currentFloor) return;
 
         const idsToDelete = Array.from(selectedIds);
-        console.log('Eliminando elementos seleccionados de BD:', idsToDelete);
 
         try {
             // Eliminar de la base de datos
@@ -2103,8 +2388,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
             if (error) {
                 console.error('Error deleting selected items from database:', error);
-            } else {
-                console.log('Elementos seleccionados eliminados exitosamente de BD:', idsToDelete);
             }
         } catch (error) {
             console.error('Error deleting selected items:', error);
@@ -2152,6 +2435,9 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                         // Crear nueva capa si no existe
                         // Asignar z-index que mantenga el orden pero evite conflictos
                         const newZIndex = maxZIndex + (index + 1) * 10;
+                        const displayName = (item.type === 'equipment' && item.assetTag && item.assetTag !== 'Disponible')
+                            ? item.assetTag
+                            : (item.name || `Elemento ${item.id}`);
                         newLayers[layerId] = {
                             visible: item.is_visible !== false, // Usar estado de BD o true por defecto
                             locked: item.is_locked || false, // Usar estado de BD
@@ -2161,16 +2447,19 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                             type: 'item',
                             itemId: item.id,
                             itemType: item.type,
-                            itemName: item.name || `Elemento ${item.id}`
+                            itemName: displayName
                         };
                     } else {
+                        const displayName = (item.type === 'equipment' && item.assetTag && item.assetTag !== 'Disponible')
+                            ? item.assetTag
+                            : (item.name || `Elemento ${item.id}`);
                         // Actualizar capa existente con el nombre y estados de BD
                         newLayers[layerId] = {
                             ...currentLayer,
                             visible: item.is_visible !== false, // Sincronizar con BD
                             locked: item.is_locked || false, // Sincronizar con BD
                             opacity: item.opacity || 1, // Sincronizar con BD
-                            itemName: item.name || `Elemento ${item.id}`,
+                            itemName: displayName,
                             lastModified: new Date().toLocaleString()
                         };
                     }
@@ -2324,7 +2613,42 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         };
     }, []);
 
-    // Prevenir pérdida de datos no guardados al cerrar/recargar la página
+    // --- BLOQUEADOR DE NAVEGACIÓN (SPA) ---
+    const blocker = useBlocker(
+        ({ currentLocation, nextLocation }) => {
+            return hasUnsavedChanges && currentLocation?.pathname !== nextLocation?.pathname;
+        }
+    );
+
+    // Manejar el estado del bloqueador
+    useEffect(() => {
+        if (blocker.state === "blocked") {
+            const proceed = window.confirm(
+                "Tienes cambios sin guardar. ¿Estás seguro de que quieres salir?"
+            );
+            if (proceed) {
+                blocker.proceed();
+            } else {
+                blocker.reset();
+            }
+        }
+    }, [blocker]);
+
+    // --- INDICADOR EN EL TÍTULO DE LA PESTAÑA ---
+    useEffect(() => {
+        const originalTitle = document.title;
+        if (hasUnsavedChanges) {
+            document.title = `(*) ${originalTitle}`;
+        } else {
+            document.title = originalTitle.replace('(*) ', '');
+        }
+
+        return () => {
+            document.title = originalTitle.replace('(*) ', '');
+        };
+    }, [hasUnsavedChanges]);
+
+    // Prevenir pérdida de datos no guardados al cerrar/recargar la página (Evento nativo)
     useEffect(() => {
         const handleBeforeUnload = (e) => {
             if (hasUnsavedChanges) {
@@ -2345,11 +2669,9 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     useEffect(() => {
         // Prevenir recargas cuando el componente se monta/desmonta
         const handlePageShow = () => {
-            console.log('📄 Página visible - componente estable');
         };
 
         const handlePageHide = () => {
-            console.log('📄 Página oculta - componente pausado');
         };
 
         window.addEventListener('pageshow', handlePageShow);
@@ -2359,6 +2681,33 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             window.removeEventListener('pageshow', handlePageShow);
             window.removeEventListener('pagehide', handlePageHide);
         };
+    }, []);
+
+    // --- FULLSCREEN & EXPANDED HANDLERS ---
+    const toggleFullScreen = useCallback(() => {
+        if (!editorRef.current) return;
+
+        if (!document.fullscreenElement) {
+            editorRef.current.requestFullscreen().catch(err => {
+                console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+            });
+        } else {
+            document.exitFullscreen();
+        }
+    }, []);
+
+    const toggleExpanded = useCallback(() => {
+        setIsExpanded(prev => !prev);
+    }, []);
+
+    // Sincronizar estado de Fullscreen con el navegador (por si usan ESC)
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsFullScreen(!!document.fullscreenElement);
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
     }, []);
 
     // Update equipos when items change
@@ -2414,7 +2763,13 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             const newFloor = {
                 id: `floor-${Date.now()}`,
                 name: `Piso ${floors.length + 1}`,
-                items: []
+                items: [],
+                background_url: null,
+                background_x: 0,
+                background_y: 0,
+                background_width: 1000,
+                background_height: 1000,
+                background_opacity: 0.5
             };
 
             // Save to database
@@ -2439,23 +2794,77 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
         }
     };
 
-    const handleRenameFloor = async (floorId, newName) => {
+    const handleUpdateFloor = async (floorId, updates) => {
         try {
+            // Limpiar valores NaN antes de guardar
+            const sanitizedUpdates = {};
+            Object.entries(updates).forEach(([key, value]) => {
+                if (typeof value === 'number' && isNaN(value)) {
+                    sanitizedUpdates[key] = 0;
+                } else {
+                    sanitizedUpdates[key] = value;
+                }
+            });
+
+            // Update local state
+            setFloors(prev => prev.map(f => f.id === floorId ? { ...f, ...sanitizedUpdates } : f));
+
             // Update database
             const { error } = await supabase
                 .from('map_floors')
-                .update({ name: newName })
+                .update(sanitizedUpdates)
                 .eq('id', floorId);
 
             if (error) {
-                console.error('Error renaming floor:', error);
-                return;
+                console.error('Error updating floor:', error);
+            }
+        } catch (error) {
+            console.error('Error updating floor:', error);
+        }
+    };
+
+
+
+    const handleRenameFloor = (floorId, newName) => {
+        handleUpdateFloor(floorId, { name: newName });
+    };
+
+    const handleDeleteFloor = async (floorId) => {
+        if (!window.confirm('¿Estás seguro que deseas eliminar este piso y todos sus elementos? Esta acción no se puede deshacer.')) {
+            return;
+        }
+
+        try {
+            // 1. Eliminar elementos del piso
+            const { error: itemsError } = await supabase
+                .from('map_items')
+                .delete()
+                .eq('floor_id', floorId);
+
+            if (itemsError) throw itemsError;
+
+            // 2. Eliminar el piso
+            const { error: floorError } = await supabase
+                .from('map_floors')
+                .delete()
+                .eq('id', floorId);
+
+            if (floorError) throw floorError;
+
+            // 3. Actualizar estado local
+            const newFloors = floors.filter(f => f.id !== floorId);
+            setFloors(newFloors);
+
+            if (newFloors.length > 0) {
+                setActiveFloorId(newFloors[0].id);
+            } else {
+                setActiveFloorId(null);
             }
 
-            // Update local state
-            setFloors(floors.map(f => f.id === floorId ? { ...f, name: newName } : f));
+            alert('Piso eliminado correctamente.');
         } catch (error) {
-            console.error('Error renaming floor:', error);
+            console.error('Error deleting floor:', error);
+            alert('Error al eliminar el piso.');
         }
     };
 
@@ -2465,11 +2874,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
     const handleAddItem = async (type) => {
         try {
-            console.log('=== INICIANDO CREACIÓN DE ELEMENTO ===');
-            console.log('Tipo:', type);
-            console.log('activeCompany:', activeCompany);
-            console.log('activeFloorId:', activeFloorId);
-
             if (!activeCompany?.id) {
                 console.error('ERROR: No hay empresa activa');
                 alert('Error: No hay empresa activa. Por favor, selecciona una empresa.');
@@ -2516,17 +2920,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     isEmpty: true // Marcar como equipo vacío
                 };
 
-            // Save to database
-            console.log('Guardando elemento en BD:', {
-                id: newItem.id,
-                floor_id: activeFloorId,
-                company_id: activeCompany?.id,
-                type: newItem.type,
-                name: newItem.name
-            });
-
             // Guardar elemento en base de datos
-            console.log('Ejecutando inserción en BD...');
             const insertResult = await supabase
                 .from('map_items')
                 .insert({
@@ -2549,14 +2943,10 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     icon: newItem.icon
                 });
 
-            console.log('Resultado completo de la inserción:', insertResult);
-
             if (insertResult.error) {
                 console.error('Error saving item to database:', insertResult.error);
                 alert(`Error al guardar en BD: ${insertResult.error.message}`);
                 return;
-            } else {
-                console.log('✅ Elemento guardado exitosamente en BD:', newItem.id);
             }
 
             // Update local state
@@ -2589,13 +2979,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 return prev;
             });
 
-            // Programar auto-guardado después de crear elemento
             setHasUnsavedChanges(true);
             // scheduleAutosave(); // DESACTIVADO - Solo guardado manual
-
-            // Feedback visual en consola
-            console.log(`✅ ${type === 'area' ? 'Área' : 'Equipo'} "${newItem.name}" creado completamente`);
-            console.log('=== CREACIÓN DE ELEMENTO COMPLETADA ===');
         } catch (error) {
             console.error('❌ Error adding item:', error);
             alert(`Error al crear elemento: ${error.message}`);
@@ -2703,12 +3088,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
             // Verificar nuevamente que la ventana esté visible antes de guardar
             if (!document.hidden) {
                 performAutosave();
-            } else {
-                console.log('📅 Auto-guardado cancelado - ventana no visible');
             }
         }, 2000);
-
-        console.log('📅 Auto-guardado programado en 2 segundos');
     }, [performAutosave]);
 
     // Función para forzar guardado manual
@@ -2763,6 +3144,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                 if (updatedData.isEmpty !== undefined) dbUpdateData.is_empty = updatedData.isEmpty;
                 if (updatedData.equipoId !== undefined) dbUpdateData.equipo_id = updatedData.equipoId;
                 if (updatedData.originalData !== undefined) dbUpdateData.original_data = updatedData.originalData;
+                if (updatedData.rotation !== undefined) dbUpdateData.rotation = updatedData.rotation;
 
                 // Only update if there's something to update
                 if (Object.keys(dbUpdateData).length > 0) {
@@ -2782,10 +3164,54 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     }, [updateActiveFloorItems, updateLayersForItems, scheduleAutosave]);
 
 
+
+    const commitItemUpdate = useCallback(async (id, updatedData) => {
+        // Update local state immediately
+        updateActiveFloorItems(items => items.map(item => item.id === id ? { ...item, ...updatedData } : item));
+
+        if (updatedData.name !== undefined) {
+            updateLayersForItems();
+        }
+
+        setHasUnsavedChanges(true);
+
+        try {
+            const dbUpdateData = {};
+
+            if (updatedData.x !== undefined) dbUpdateData.x = Math.round(updatedData.x);
+            if (updatedData.y !== undefined) dbUpdateData.y = Math.round(updatedData.y);
+            if (updatedData.width !== undefined) dbUpdateData.width = Math.round(updatedData.width);
+            if (updatedData.height !== undefined) dbUpdateData.height = Math.round(updatedData.height);
+            if (updatedData.name !== undefined) dbUpdateData.name = updatedData.name;
+            if (updatedData.assetTag !== undefined) dbUpdateData.asset_tag = updatedData.assetTag;
+            if (updatedData.status !== undefined) dbUpdateData.status = updatedData.status;
+            if (updatedData.backgroundColor !== undefined) dbUpdateData.background_color = updatedData.backgroundColor;
+            if (updatedData.borderColor !== undefined) dbUpdateData.border_color = updatedData.borderColor;
+            if (updatedData.textColor !== undefined) dbUpdateData.text_color = updatedData.textColor;
+            if (updatedData.locked !== undefined) dbUpdateData.is_locked = updatedData.locked;
+            if (updatedData.isEmpty !== undefined) dbUpdateData.is_empty = updatedData.isEmpty;
+            if (updatedData.equipoId !== undefined) dbUpdateData.equipo_id = updatedData.equipoId;
+            if (updatedData.originalData !== undefined) dbUpdateData.original_data = updatedData.originalData;
+            if (updatedData.rotation !== undefined) dbUpdateData.rotation = updatedData.rotation;
+
+            if (Object.keys(dbUpdateData).length > 0) {
+                const { error } = await supabase
+                    .from('map_items')
+                    .update(dbUpdateData)
+                    .eq('id', id);
+
+                if (error) {
+                    console.error('Error updating item in database:', error);
+                }
+            }
+        } catch (error) {
+            console.error('Error updating item:', error);
+        }
+    }, [updateActiveFloorItems, updateLayersForItems, supabase]);
+
+
     const handleDeleteItem = async (id) => {
         try {
-            console.log('Eliminando elemento de BD:', { id, company_id: activeCompany?.id });
-
             // Eliminar de la base de datos con filtro por empresa
             const { error } = await supabase
                 .from('map_items')
@@ -2795,8 +3221,6 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
             if (error) {
                 console.error('Error deleting item from database:', error);
-            } else {
-                console.log('Elemento eliminado exitosamente de BD:', id);
             }
 
             // Eliminar del estado local
@@ -2825,6 +3249,7 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
 
     const handleSelect = useCallback((item) => {
         setSelectedId(item.id);
+        setSelectedLayer(`item_${item.id}`);
         // Solo seleccionar visualmente, no abrir modal
     }, []);
 
@@ -2849,6 +3274,9 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     const handleMouseDownCanvas = (e) => {
         e.stopPropagation();
 
+        // Si estamos calibrando el fondo y pulsamos sobre el fondo o handles
+        // El mousedown del fondo ya detendrá la propagación si es necesario o activará bgTransformState
+
         // Si space está presionado, activar panning con cualquier botón del mouse
         if (isSpacePressed) {
             e.preventDefault();
@@ -2862,6 +3290,8 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     };
 
     const handleMouseMoveCanvas = (e) => {
+
+
         if (!isPanning.current) return;
         e.stopPropagation();
         const dx = e.clientX - lastMousePos.current.x;
@@ -2871,26 +3301,189 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
     };
 
     const handleMouseUpCanvas = () => {
+
+
         isPanning.current = false;
         setIsSpacePanning(false);
     };
 
-    const activeFloor = floors.find(f => f.id === activeFloorId);
-    // TEMPORAL: Deshabilitar viewport culling para debug
-    const itemsToRender = activeFloor ? activeFloor.items : []; // visibleItems; // Usar elementos visibles para mejor rendimiento
+
+    const openContextMenu = useCallback((item, e) => {
+        setSelectedId(item.id);
+        setContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            item
+        });
+    }, []);
+
+    const closeContextMenu = useCallback(() => {
+        setContextMenu(null);
+    }, []);
+
+    useEffect(() => {
+        if (!contextMenu) return;
+        const handleClick = () => setContextMenu(null);
+        const handleEsc = (ev) => {
+            if (ev.key === 'Escape') setContextMenu(null);
+        };
+        window.addEventListener('click', handleClick);
+        window.addEventListener('keydown', handleEsc);
+        return () => {
+            window.removeEventListener('click', handleClick);
+            window.removeEventListener('keydown', handleEsc);
+        };
+    }, [contextMenu]);
+
+    const focusItemInCanvas = useCallback((item) => {
+        if (!item) return;
+        const viewWidth = viewportSize.width || canvasRef.current?.clientWidth || 0;
+        const viewHeight = viewportSize.height || canvasRef.current?.clientHeight || 0;
+        if (!viewWidth || !viewHeight) return;
+
+        const centerX = item.x + item.width / 2;
+        const centerY = item.y + item.height / 2;
+
+        setTransform(prev => ({
+            ...prev,
+            x: viewWidth / 2 - centerX * prev.scale,
+            y: viewHeight / 2 - centerY * prev.scale
+        }));
+
+        setSelectedId(item.id);
+    }, [viewportSize]);
+
+    const handleSearchAndFocus = useCallback(() => {
+        const query = searchTerm.trim().toLowerCase();
+        if (!query || !activeFloor) return;
+
+        const items = activeFloor.items || [];
+        const exactMatch = items.find(item =>
+            (item.assetTag || '').toLowerCase() === query ||
+            (item.name || '').toLowerCase() === query
+        );
+
+        const partialMatch = items.find(item =>
+            (item.assetTag || '').toLowerCase().includes(query) ||
+            (item.name || '').toLowerCase().includes(query)
+        );
+
+        const target = exactMatch || partialMatch;
+        if (!target) {
+            alert('No se encontrÃ³ ningÃºn elemento con ese nombre.');
+            return;
+        }
+
+        focusItemInCanvas(target);
+    }, [searchTerm, activeFloor, focusItemInCanvas]);
+
+    const handleReleaseEquipment = useCallback(async () => {
+        const query = releaseTerm.trim().toLowerCase();
+        if (!query) return;
+        if (!activeCompany?.id) {
+            alert('Error: No hay empresa activa.');
+            return;
+        }
+
+        const equipo = equipos.find(e => {
+            const persona = (e.persona_asignada || '').toLowerCase();
+            const codigo = (e.codigo_interno || '').toLowerCase();
+            return persona === query || codigo === query || persona.includes(query) || codigo.includes(query);
+        });
+
+        if (!equipo) {
+            alert('No se encontro un equipo con ese nombre o codigo.');
+            return;
+        }
+
+        try {
+            const { error } = await supabase
+                .from('map_items')
+                .update({
+                    equipo_id: null,
+                    original_data: null,
+                    is_empty: true,
+                    name: 'Nuevo Equipo',
+                    asset_tag: 'Disponible',
+                    status: 'activo',
+                    icon: 'default',
+                    background_color: '#F3F4F6',
+                    border_color: '#D1D5DB',
+                    text_color: '#374151'
+                })
+                .eq('equipo_id', equipo.id)
+                .eq('company_id', activeCompany?.id);
+
+            if (error) {
+                console.error('Error liberando equipo:', error);
+                alert(`Error al liberar equipo: ${error.message}`);
+                return;
+            }
+
+            setFloors(prev => prev.map(f => ({
+                ...f,
+                items: f.items.map(item => {
+                    if (String(item.equipoId) !== String(equipo.id)) return item;
+                    return {
+                        ...item,
+                        equipoId: null,
+                        originalData: null,
+                        isEmpty: true,
+                        name: 'Nuevo Equipo',
+                        assetTag: 'Disponible',
+                        status: 'activo',
+                        icon: 'default',
+                        backgroundColor: '#F3F4F6',
+                        borderColor: '#D1D5DB',
+                        textColor: '#374151'
+                    };
+                })
+            })));
+
+            setReleaseTerm('');
+            alert('Equipo liberado correctamente.');
+        } catch (error) {
+            console.error('Error liberando equipo:', error);
+            alert('Error inesperado al liberar el equipo.');
+        }
+    }, [releaseTerm, equipos, activeCompany?.id, supabase]);
+
+
+
+
+
+
+
+
+    const itemsToRender = visibleItems;
     const selectedItem = itemsToRender.find(item => item.id === selectedId);
 
-    // Debug: Log de elementos a renderizar (solo en desarrollo y cuando cambia el piso)
+    // Filtrar equipos disponibles para evitar duplicados en el mapa
+    const filteredEquipos = useMemo(() => {
+        // Obtener IDs de equipos ya asignados en todos los pisos (excepto el del elemento seleccionado actualmente)
+        const assignedIds = new Set();
+        floors.forEach(floor => {
+            floor.items.forEach(item => {
+                if (item.equipoId && item.id !== selectedId) {
+                    assignedIds.add(item.equipoId);
+                }
+            });
+        });
+        return equipos.filter(e => !assignedIds.has(e.id));
+    }, [equipos, floors, selectedId]);
+
     React.useEffect(() => {
         if (process.env.NODE_ENV === 'development' && activeFloor && activeFloor.items.length > 0) {
-            console.log(`Renderizado - Piso activo: ${activeFloorId}`);
-            console.log(`Total elementos en piso: ${activeFloor.items.length}`);
-            console.log(`Elementos a renderizar: ${itemsToRender.length}`);
         }
     }, [activeFloorId]); // Solo depende del cambio de piso, no de cada render
 
     return (
-        <div className="h-[800px] w-full bg-gray-100 flex flex-col font-sans select-none rounded-lg border">
+        <div
+            ref={editorRef}
+            className={`w-full bg-gray-100 flex flex-col font-sans select-none rounded-lg border transition-all duration-300 ${isFullScreen ? 'h-screen w-screen fixed inset-0 z-[1000] rounded-none' :
+                isExpanded ? 'h-[calc(100vh-100px)]' : 'h-[800px]'
+                }`}
+        >
             <header className="bg-white border-b p-3 shadow-sm flex items-center justify-between z-20">
                 <div className="flex items-center gap-4">
                     <h1 className="text-xl font-bold">Plano de Activos</h1>
@@ -2912,74 +3505,161 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                         </div>
                     )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-200">
+                    {/* Sección: Herramientas de Dibujo */}
+                    <div className="flex items-center gap-1 pr-2 border-r border-gray-300">
+                        <button
+                            onClick={() => handleAddItem('area')}
+                            className="flex items-center gap-2 bg-blue-500 text-white text-sm font-semibold py-1.5 px-3 rounded-md shadow-sm hover:bg-blue-600 transition-all duration-200"
+                            title="Añadir nueva área al mapa"
+                        >
+                            <RectangleGroupIcon className="h-4 w-4" />
+                            <span>Área</span>
+                        </button>
+                        <button
+                            onClick={() => handleAddItem('equipment')}
+                            className="flex items-center gap-2 bg-green-600 text-white text-sm font-semibold py-1.5 px-3 rounded-md shadow-sm hover:bg-green-700 transition-all duration-200"
+                            title="Añadir nuevo equipo al mapa"
+                        >
+                            <CpuChipIcon className="h-4 w-4" />
+                            <span>Equipo</span>
+                        </button>
+                    </div>
+
+                    {/* Sección: Acciones de Selección Multi */}
                     {selectedIds.size > 0 && (
-                        <>
+                        <div className="flex items-center gap-1 px-1 pr-2 border-r border-gray-300 animate-in fade-in slide-in-from-right-2 duration-300">
                             <button
                                 onClick={clearMultiSelect}
-                                className="bg-gray-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-gray-600 transition-all duration-200 hover:scale-105"
+                                className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-md transition-colors"
                                 title="Deseleccionar todo"
                             >
-                                Deseleccionar
+                                <XMarkIcon className="h-5 w-5" />
                             </button>
                             <button
                                 onClick={deleteSelectedElements}
-                                className="bg-red-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-red-600 transition-all duration-200 hover:scale-105"
-                                title="Eliminar elementos seleccionados (Delete)"
+                                className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors"
+                                title={`Eliminar ${selectedIds.size} elementos seleccionados`}
                             >
-                                Eliminar ({selectedIds.size})
+                                <TrashIcon className="h-5 w-5" />
                             </button>
-                        </>
+                        </div>
                     )}
-                    <button onClick={() => handleAddItem('area')} className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-blue-600 transition-all duration-200 hover:scale-105">Añadir Área</button>
-                    <button onClick={() => handleAddItem('equipment')} className="bg-green-500 text-white font-semibold py-2 px-4 rounded-lg shadow hover:bg-green-600 transition-all duration-200 hover:scale-105">Añadir Equipo</button>
-                    <button
-                        onClick={forceSave}
-                        disabled={autosaveStatus === 'saving'}
-                        className={`font-semibold py-2 px-4 rounded-lg shadow transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed ${hasUnsavedChanges
-                            ? 'bg-yellow-500 text-white hover:bg-yellow-600 animate-pulse'
-                            : 'bg-gray-500 text-white hover:bg-gray-600'
-                            }`}
-                        title={hasUnsavedChanges ? '¡Hay cambios sin guardar!' : 'Forzar guardado manual'}
-                    >
-                        {autosaveStatus === 'saving' ? 'Guardando...' : hasUnsavedChanges ? '⚠️ Guardar Cambios' : '💾 Guardar'}
-                    </button>
 
-                    {/* Indicador de auto-guardado */}
-                    <div className="flex items-center gap-2 ml-4">
-                        {autosaveStatus === 'saving' && (
-                            <div className="flex items-center gap-2 text-blue-600">
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                                <span className="text-sm font-medium">Guardando...</span>
-                            </div>
-                        )}
-                        {autosaveStatus === 'saved' && (
-                            <div className="flex items-center gap-2 text-green-600">
-                                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                </svg>
-                                <span className="text-sm font-medium">Canvas guardado</span>
-                            </div>
-                        )}
-                        {autosaveStatus === 'error' && (
-                            <div className="flex items-center gap-2 text-red-600">
-                                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                </svg>
-                                <span className="text-sm font-medium">Error al guardar</span>
-                            </div>
-                        )}
-                        {autosaveStatus === 'idle' && lastAutosaveTime.current && (
-                            <div className="flex items-center gap-2 text-gray-500">
-                                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                                </svg>
-                                <span className="text-sm">
-                                    Último guardado: {lastAutosaveTime.current.toLocaleTimeString()}
-                                </span>
-                            </div>
-                        )}
+                    {/* Sección: Herramientas de Alineación (Solo Multi-selección) */}
+                    {selectedIds.size > 1 && (
+                        <div className="flex items-center gap-1 px-1 pr-2 border-r border-gray-300 animate-in fade-in slide-in-from-right-1 duration-300">
+                            <button onClick={() => alignElements('left')} className="p-1.5 hover:bg-gray-200 rounded-md text-gray-600" title="Alinear a la izquierda">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 2v20M8 5h11a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H8M8 15h7a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H8" /></svg>
+                            </button>
+                            <button onClick={() => alignElements('centerH')} className="p-1.5 hover:bg-gray-200 rounded-md text-gray-600" title="Centrar horizontalmente">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M7 5h10a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM9 15h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1z" /></svg>
+                            </button>
+                            <button onClick={() => alignElements('top')} className="p-1.5 hover:bg-gray-200 rounded-md text-gray-600" title="Alinear arriba">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 4h20M5 8v11a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V8M15 8v7a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V8" /></svg>
+                            </button>
+                            <button onClick={() => alignElements('centerV')} className="p-1.5 hover:bg-gray-200 rounded-md text-gray-600" title="Centrar verticalmente">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 12h20M5 7h2a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zM15 9h2a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z" /></svg>
+                            </button>
+                            <div className="w-px h-4 bg-gray-300 mx-0.5"></div>
+                            <button onClick={() => distributeElements('horizontal')} className="p-1.5 hover:bg-gray-200 rounded-md text-gray-600" title="Distribuir horizontalmente">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 5v14M22 5v14M7 8h2v8H7M15 8h2v8h-2" /></svg>
+                            </button>
+                            <button onClick={() => distributeElements('vertical')} className="p-1.5 hover:bg-gray-200 rounded-md text-gray-600" title="Distribuir verticalmente">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 2h14M5 22h14M8 7h8v2H8M8 15h8v2H8" /></svg>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Sección: Visualización y Vista */}
+                    <div className="flex items-center gap-1 px-1 pr-2 border-r border-gray-300">
+                        <button
+                            onClick={() => setShowGrid(!showGrid)}
+                            className={`p-1.5 rounded-md transition-colors ${showGrid ? 'bg-amber-100 text-amber-700' : 'text-gray-500 hover:bg-gray-200'}`}
+                            title={showGrid ? "Ocultar cuadrícula" : "Mostrar cuadrícula"}
+                        >
+                            <Square2StackIcon className="h-5 w-5" />
+                        </button>
+                        <button
+                            onClick={() => setSnapToGrid(!snapToGrid)}
+                            className={`p-1.5 rounded-md transition-colors ${snapToGrid ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-200'}`}
+                            title={snapToGrid ? "Desactivar ajuste a cuadrícula" : "Activar ajuste a cuadrícula"}
+                        >
+                            <ViewfinderCircleIcon className="h-5 w-5" />
+                        </button>
+                        <button
+                            onClick={toggleExpanded}
+                            className={`p-1.5 rounded-md transition-colors ${isExpanded ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:bg-gray-200'}`}
+                            title={isExpanded ? "Contraer vista" : "Expandir vista"}
+                        >
+                            <ArrowsUpDownIcon className="h-5 w-5" />
+                        </button>
+                        <button
+                            onClick={toggleFullScreen}
+                            className={`p-1.5 rounded-md transition-colors ${isFullScreen ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:bg-gray-200'}`}
+                            title={isFullScreen ? "Salir de pantalla completa" : "Pantalla completa"}
+                        >
+                            {isFullScreen ? <ArrowsPointingInIcon className="h-5 w-5" /> : <ArrowsPointingOutIcon className="h-5 w-5" />}
+                        </button>
                     </div>
+
+                    {/* Sección: Guardado */}
+                    <div className="flex items-center gap-1 pl-2 border-l border-gray-300">
+                        <button
+                            onClick={forceSave}
+                            disabled={autosaveStatus === 'saving'}
+                            className={`flex items-center gap-2 text-sm font-bold py-1.5 px-4 rounded-md shadow-sm transition-all duration-200 disabled:opacity-50 ${hasUnsavedChanges
+                                ? 'bg-amber-500 text-white hover:bg-amber-600 animate-pulse'
+                                : 'bg-gray-600 text-white hover:bg-gray-700'
+                                }`}
+                            title={hasUnsavedChanges ? '¡Hay cambios sin guardar!' : 'Guardar cambios manualmente'}
+                        >
+                            {autosaveStatus === 'saving' ? (
+                                <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                            ) : hasUnsavedChanges ? (
+                                <ExclamationTriangleIcon className="h-4 w-4" />
+                            ) : (
+                                <CheckIcon className="h-4 w-4" />
+                            )}
+                            <span>{autosaveStatus === 'saving' ? 'Guardando' : hasUnsavedChanges ? 'Guardar' : 'Guardado'}</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Indicador de auto-guardado */}
+                <div className="flex items-center gap-2 ml-4">
+                    {autosaveStatus === 'saving' && (
+                        <div className="flex items-center gap-2 text-blue-600">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                            <span className="text-sm font-medium">Guardando...</span>
+                        </div>
+                    )}
+                    {autosaveStatus === 'saved' && (
+                        <div className="flex items-center gap-2 text-green-600">
+                            <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                            <span className="text-sm font-medium">Canvas guardado</span>
+                        </div>
+                    )}
+                    {autosaveStatus === 'error' && (
+                        <div className="flex items-center gap-2 text-red-600">
+                            <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                            <span className="text-sm font-medium">Error al guardar</span>
+                        </div>
+                    )}
+                    {autosaveStatus === 'idle' && lastAutosaveTime.current && (
+                        <div className="flex items-center gap-2 text-gray-500">
+                            <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                            </svg>
+                            <span className="text-sm">
+                                Último guardado: {lastAutosaveTime.current.toLocaleTimeString()}
+                            </span>
+                        </div>
+                    )}
                 </div>
             </header>
 
@@ -3002,35 +3682,52 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                     onMouseLeave={handleMouseUpCanvas}
                     onClick={(e) => { if (e.target.id === "canvas-container" || e.target.id === "canvas-content") setSelectedId(null) }}
                     style={{
-                        backgroundImage: 'radial-gradient(#d1d5db 1px, transparent 1px)',
-                        backgroundSize: '20px 20px',
+                        backgroundImage: showGrid ? `linear-gradient(to right, #e5e7eb 1px, transparent 1px), linear-gradient(to bottom, #e5e7eb 1px, transparent 1px)` : 'none',
+                        backgroundSize: showGrid ? `${gridSize * transform.scale}px ${gridSize * transform.scale}px` : 'auto',
+                        backgroundPosition: showGrid ? `${transform.x}px ${transform.y}px` : '0 0',
                         cursor: isSpacePressed ? (isSpacePanning ? 'grabbing' : 'grab') : 'default'
                     }}>
 
                     <div id="canvas-content" className="absolute top-0 left-0"
                         style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`, transformOrigin: 'top left' }}>
 
+
+
+
+
+
+
+
+
+
+
+
+
                         {itemsToRender.map(item => (
                             <DraggableResizableItem
                                 key={item.id}
                                 data={item}
-                                onUpdate={handleUpdateItem}
+                                onUpdate={commitItemUpdate}
                                 onSelect={handleSelect}
                                 onDoubleClick={handleDoubleClick}
+                                onContextMenu={openContextMenu}
                                 isSelected={selectedId === item.id}
                                 isMultiSelected={selectedIds.has(item.id) && selectedIds.size > 1}
-                                scale={transform.scale}
+                                scaleRef={scaleRef}
                                 getFinalZIndex={getFinalZIndex}
                                 isLayerVisible={isLayerVisible}
                                 getLayerOpacity={getLayerOpacity}
                                 isLayerLocked={isLayerLocked}
                                 onMultiSelect={handleMultiSelect}
                                 onMoveSelectedElements={moveSelectedElements}
-                                selectedIds={selectedIds}
-                                floors={floors}
-                                activeFloorId={activeFloorId}
+                                selectedIdsRef={selectedIdsRef}
+                                activeFloorItemsRef={activeFloorItemsRef}
                                 setSelectedItemsInitialPositions={setSelectedItemsInitialPositions}
                                 isSpacePressed={isSpacePressed}
+                                snapToGrid={snapToGrid}
+                                gridSize={gridSize}
+                                multiDragDelta={multiDragDelta}
+                                onCommitMultiMove={commitMultiMove}
                             >
                                 {item.type === 'area' ?
                                     <Area data={item} isSelected={selectedId === item.id} /> :
@@ -3075,24 +3772,114 @@ const Map2D = ({ onEquipoSelect, onEquipoDoubleClick, selectedEquipo }) => {
                                 onLayerDelete={handleLayerDelete}
                                 onLayerCreate={handleLayerCreate}
                                 onLayerDoubleClick={handleLayerDoubleClick}
+                                onLayerItemDelete={handleDeleteItem}
                                 selectedLayer={selectedLayer}
                             />
-                        ) : (
+                        ) : selectedItem ? (
                             <PropertiesPanel
                                 selectedItem={selectedItem}
                                 onUpdate={handleUpdateItem}
                                 onDelete={handleDeleteItem}
-                                availableEquipos={equipos}
+                                availableEquipos={filteredEquipos}
                                 copyElement={copyElement}
                                 pasteElement={pasteElement}
                                 duplicateElement={duplicateElement}
                                 clipboard={clipboard}
                             />
+                        ) : (
+                            <div className="p-4 bg-white h-full overflow-y-auto">
+                                <h3 className="text-lg font-bold text-gray-800 mb-4 pb-2 border-b">Configuración del Piso</h3>
+
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Buscar en mapa</label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={searchTerm}
+                                                onChange={(e) => setSearchTerm(e.target.value)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') handleSearchAndFocus(); }}
+                                                className="flex-1 px-3 py-2 border rounded-md"
+                                                placeholder="Nombre o persona (ej: MILTON ESCORCIA)"
+                                            />
+                                            <button
+                                                onClick={handleSearchAndFocus}
+                                                className="px-3 py-2 bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700"
+                                            >
+                                                Ir
+                                            </button>
+                                        </div>
+                                        <p className="text-[11px] text-gray-500 mt-1">Busca por nombre o persona asignada.</p>
+                                    </div>
+                                    <div className="border-t pt-3">
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Liberar equipo asignado</label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={releaseTerm}
+                                                onChange={(e) => setReleaseTerm(e.target.value)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') handleReleaseEquipment(); }}
+                                                className="flex-1 px-3 py-2 border rounded-md"
+                                                placeholder="Persona o codigo (ej: MILTON ESCORCIA)"
+                                            />
+                                            <button
+                                                onClick={handleReleaseEquipment}
+                                                className="px-3 py-2 bg-red-600 text-white rounded-md text-sm font-semibold hover:bg-red-700"
+                                            >
+                                                Liberar
+                                            </button>
+                                        </div>
+                                        <p className="text-[11px] text-gray-500 mt-1">Usa esto si un equipo quedo asignado pero no aparece en el mapa.</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del Piso</label>
+                                        <input
+                                            type="text"
+                                            value={activeFloor?.name || ''}
+                                            onChange={(e) => handleRenameFloor(activeFloorId, e.target.value)}
+                                            className="w-full px-3 py-2 border rounded-md"
+                                        />
+                                    </div>
+
+
+
+
+
+                                    <div className="pt-4 border-t">
+                                        <button
+                                            onClick={() => handleDeleteFloor(activeFloorId)}
+                                            className="w-full py-2 bg-red-50 text-red-600 border border-red-100 rounded-md text-sm font-bold hover:bg-red-100 transition-colors"
+                                        >
+                                            Eliminar Piso Actual
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         )}
                     </div>
+                </div >
+            </main >
+
+            {contextMenu && (
+                <div
+                    className="fixed z-[2000]"
+                    style={{ left: contextMenu.x, top: contextMenu.y }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="bg-white border border-gray-200 rounded-md shadow-lg min-w-[140px]">
+                        <button
+                            onClick={() => {
+                                handleDeleteItem(contextMenu.item.id);
+                                closeContextMenu();
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                        >
+                            Eliminar
+                        </button>
+                    </div>
                 </div>
-            </main>
-        </div>
+            )}
+        </div >
     );
 };
 

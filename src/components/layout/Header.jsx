@@ -186,9 +186,8 @@ function Header() {
           })();
         }
       )
-      .subscribe();
     return () => {
-      supabase.removeChannel(channel);
+      // Channel cleanup not needed when realtime is disabled
     };
   }, [activeCompany]);
 
@@ -203,7 +202,7 @@ function Header() {
   }, []);
 
   return (
-    <header className="bg-white shadow-md sticky top-0 z-20">
+    <header className="bg-white shadow-md sticky top-0 z-[150]">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center py-3">
           <div className="flex items-center gap-4">
@@ -309,7 +308,7 @@ function Header() {
                 )}
               </button>
               {notifOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-30">
+                <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-[160]">
                   <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between">
                     <span className="text-sm font-semibold text-gray-800">Notificaciones</span>
                     <Link

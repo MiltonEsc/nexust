@@ -1,5 +1,4 @@
-import React, { useEffect } from "react"; // <-- CORRECCIÓN APLICADA AQUÍ
-import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { createBrowserRouter, createRoutesFromElements, Routes, Route, useNavigate, useLocation, Outlet, Navigate } from "react-router-dom";
 import { AppProvider, useAppContext } from "./context/AppContext";
 import ConfirmationModal from "./components/common/ConfirmationModal";
 
@@ -17,22 +16,12 @@ import ReportesPage from "./pages/ReportesPage";
 import EmpresasPage from "./pages/EmpresasPage";
 import MapasPage from "./pages/MapasPage";
 import ComprasPage from "./pages/ComprasPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 
-// Componente interno para manejar las redirecciones y la lógica de rutas
-function AppRoutes() {
+// Componente para manejar la protección de rutas
+function ProtectedRoot() {
   const { session, loading } = useAppContext();
-  const navigate = useNavigate();
   const location = useLocation();
-
-  useEffect(() => {
-    if (!loading) {
-      if (session && location.pathname === "/login") {
-        navigate("/");
-      } else if (!session && location.pathname !== "/login") {
-        navigate("/login");
-      }
-    }
-  }, [session, loading, navigate, location.pathname]);
 
   if (loading) {
     return (
@@ -42,9 +31,39 @@ function AppRoutes() {
     );
   }
 
+  const publicRoutes = ["/login", "/reset-password"];
+
+  if (!session && !publicRoutes.includes(location.pathname)) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (session && publicRoutes.includes(location.pathname)) {
+    return <Navigate to="/" replace />;
+  }
+
   return (
-    <Routes>
+    <>
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: "#363636",
+            color: "#fff",
+          },
+        }}
+      />
+      <Outlet />
+      <ConfirmationModal />
+    </>
+  );
+}
+
+export const router = createBrowserRouter(
+  createRoutesFromElements(
+    <Route element={<AppProvider><ProtectedRoot /></AppProvider>}>
       <Route path="/login" element={<AuthPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/" element={<MainLayout />}>
         <Route index element={<DashboardPage />} />
         <Route path="inventario" element={<InventarioPage />} />
@@ -61,28 +80,13 @@ function AppRoutes() {
         <Route path="empresas" element={<EmpresasPage />} />
         <Route path="compras" element={<ComprasPage />} />
       </Route>
-    </Routes>
-  );
-}
+    </Route>
+  )
+);
 
-// El componente principal ahora solo configura el Proveedor de Contexto
 function App() {
-  return (
-    <AppProvider>
-      <Toaster
-        position="top-right"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: "#363636",
-            color: "#fff",
-          },
-        }}
-      />
-      <AppRoutes />
-      <ConfirmationModal />
-    </AppProvider>
-  );
+  // Este componente ya no se usa directamente por RouterProvider en main.jsx
+  return null;
 }
 
 export default App;

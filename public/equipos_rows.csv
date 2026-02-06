@@ -1,0 +1,95 @@
+id,marca,modelo,numero_serie,estado,ubicacion,proveedor_id,numero_factura,fecha_compra,fecha_vencimiento_garantia,imagen,trazabilidad,factura_pdf_url,costo,company_id,vida_util,valor_residual,registro_id,x_coordinate,y_coordinate,codigo_interno,persona_asignada
+30,HP,HP PRODESK 400 G1 SFF,1,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+31,HP,PRODESK 400 G7,2,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+32,HP,PRO COMPAQ 4300 SFF,3,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+33,HP,PRO COMPAQ 4300 SFF,4,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+34,HP,HP ELITEDESK 800 G3 MINI,5,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+35,HP,LAPTOP 15-DY1XXX,6,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+36,JANUS,4 FAN MS-7D23,7,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+37,ASUS,ASUS VIVOBOOK,8,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+38,HP,PRO 3000/3080,9,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+39,AERCOOL,AEROCOOL CYLION PRIME B560-A,10,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+40,HP,PRODESK 500 G1 SFF,11,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+41,HP,Z4 G6 WORKSTATION,12,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+42,HP,Z2 TOWER G4 WORKSTATION,13,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+43,HP,245 G8 NOTEBOOOK,14,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+44,HP,Z2 TOWER G5 WORKSTATION,15,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+45,APPLE,MACBOOK PRO,16,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+46,HP,HP PRODESK 400 G1 SFF,17,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+47,DELL,VOSTRO 470,18,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+48,HP,HP ZBOOK 15 G2,19,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+49,LENOVO,21BV0097US Lenovo 21BV0097US ThinkPad T16 Gen,20,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+50,HP,HP PRODESK 400 G1 S,21,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+51,HP,HP ELITEDESK 800 G6 SMALL FORM FACTOR PC,22,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+52,HP,HP 245 G8 NOTEBOOK PC,23,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+53,HP,PROBOOK,24,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+54,JANUS,MS7971,25,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+55,HP PRODESK MINI,PRODESK 600 G1 DM,26,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+56,LENOVO,LENOVO E15 GEN2,27,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+57,HP,HP ELITEDESK 800 G2 DM 35W,28,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+58,HP,HP PRODESK 600 G1 DM,29,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+59,HP,HP PRO 3000/3080,30,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+60,WATTANA,WATTANA,31,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+61,HP,VICTUS GAMING,32,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+62,HP,HP Z2 TOWER G4 WORKSTATION,33,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+63,TOSHIBA,TOSHIBA-MQ01ABDD100,34,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+64,HP,245 G8 HP,35,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+65,HP,HP- Z2 G5 INTEL,36,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+66,HP,HP ELITEDESK 800G3 DM 35W RETAIL,37,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+67,HP,VICTUS BY HP LAPTOP 16-D0XXX,38,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+68,HP,POWER - H61H2-MV,39,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+69,ACER,TRAVELMATE P214-53,40,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+70,DELL,POWEREDGE R440 SERVER,41,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+71,HP,PROLIANT DL1G0G6,42,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+72,DELL,POWEREDGE 2900,43,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+73,DELL,POWEREDGE SC1430,44,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+74,LENOVO,IDEAPAD GAMING 3 15IHU6,45,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+75,HP,ELITE DESK 800G3,46,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+76,DELL,OPTIPLEX 3060,47,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+77,HP,340 G1,48,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+78,HP,PROBOOK450G6,49,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+79,HP,HP PRO 3000/3080,50,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+80,HP,HP ELITEDESK 800 G2 DM 35W,51,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+81,LENOVO,IDEAPADGAMING 3 15IAH7 TYPE 82S9,52,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+82,HP,HP PRODESK 400 G1,53,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+83,HP,HP PROBOOK 440 G7,54,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+84,HP,PRODESK 600 G1 DM,55,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+85,LENOVO,THINKBOOK 14 G2,56,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+86,ACER,ASPIRE ES1-572,57,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+87,LENOVO,THINKPAD P1,58,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+88,ACER,ASPIRE A515-41Y8,59,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+89,HP,PAVILION NOTEBOOK,60,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+90,HP,PROBOOK 4430S,61,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+91,DELL,INSPIRON 15 3525,62,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+92,LENOVO,IDEAPAD GAMING 15IHU6,63,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+93,DELL,LATITUDE 3420,64,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+94,DELL,LATITUDE 3420,65,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+95,LENOVO,IDEAPAD GAMING 315ARH7,66,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+96,DELL,LATITUDE 3440,67,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+97,DELL,LATITUDE 3440,68,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+98,HP,COMPAQ 4300 SFF,69,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+99,AIRFLOW,AIRFLOW 3000D MRPC,70,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+100,DELL,INSPIRON 15 3520,71,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+101,DELL,INSPIRON 15 3520,72,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+102,DELL,INSPIRON 15 3520,73,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+103,ASUS,TUF GAMING A 15 FA506N,74,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+104,ASUS,TUF GAMING A 15 FA506N,75,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+105,HP,15-EF2519LA,76,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+106,HP,Z BOOK FIREFLY 16 G11,77,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+107,HP,245 G7 NOTEBOOK PC,78,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+108,HP,255 G10,79,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+109,AOURUS,AORUS C300 GB -AC300G BOARD B760M,80,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+110,HP,ZBOOK FIREFLY 14 G11,81,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+111,ASUS,EXPERTBOOK BM1403CDA,82,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+112,ASUS,EXPERTBOOK BM1403CDA,83,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+113,"JANUS
+
+",JANUS-RD855,84,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+114,HP,VICTUS BY HP LAPTOP 16-D0XXX,85,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+115,HP,HP Z420 WORKSTATION,86,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+116,LENOVO,THINKPAD e15,87,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+117,POWERGROUP,H81H3-M4,88,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+118,POWER GROUP,G10382HSD -S2H,89,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+119,HP,245 G7 NOTEBOOK PC,90,Bueno,Superbrix,,null,,,,[],,10000,cf628243-3101-44cc-a1ba-5330409e5cb8,,0,,0,0,0,null
+,,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,

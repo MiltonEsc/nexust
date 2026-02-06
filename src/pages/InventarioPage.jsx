@@ -1,6 +1,6 @@
 // src/pages/InventarioPage.jsx
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "../supabaseClient";
 import { useAppContext } from "../context/AppContext";
 import Modal from "../components/common/Modal";
@@ -56,8 +56,22 @@ function InventarioPage() {
   const [scannedAsset, setScannedAsset] = useState(null);
   const [isQRGeneratorOpen, setIsQRGeneratorOpen] = useState(false);
   const [selectedItems, setSelectedItems] = useState([]);
+  const [filters, setFilters] = useState({
+    estado: "",
+    tipo: "",
+    fechaDesde: "",
+    fechaHasta: ""
+  });
+  const [columnVisibility, setColumnVisibility] = useState({
+    equipos: {},
+    software: {},
+    perifericos: {}
+  });
+  const [sortState, setSortState] = useState([]);
+  const [compactMode, setCompactMode] = useState(false);
+  const lastQueryKeyRef = useRef("equipos|");
 
-  const fetchData = async (tab, search, page, isRefresh = false) => {
+  const fetchData = async (tab, search, page, isRefresh = false, filtersState = filters) => {
     if (!activeCompany) {
       setLoading(false);
       setItems([]);
@@ -102,6 +116,19 @@ function InventarioPage() {
         query = query.or(searchColumns[tab]);
       }
 
+      if (filtersState?.estado && (tab === "equipos" || tab === "perifericos")) {
+        query = query.eq("estado", filtersState.estado);
+      }
+      if (filtersState?.tipo && tab === "perifericos") {
+        query = query.ilike("tipo", `%${filtersState.tipo}%`);
+      }
+      if (filtersState?.fechaDesde) {
+        query = query.gte("created_at", filtersState.fechaDesde);
+      }
+      if (filtersState?.fechaHasta) {
+        query = query.lte("created_at", filtersState.fechaHasta);
+      }
+
       query = query.range(from, to);
       const { data, error, count } = await query;
       if (error) throw error;
@@ -117,7 +144,7 @@ function InventarioPage() {
   };
 
   const handleRefresh = () =>
-    fetchData(activeTab, searchTerm, currentPage, true);
+    fetchData(activeTab, searchTerm, currentPage, true, filters);
 
   const fetchMaintenanceForEquipo = async (equipoId) => {
     try {
@@ -137,13 +164,26 @@ function InventarioPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeTab, searchTerm]);
+  }, [activeTab, searchTerm, filters]);
 
   useEffect(() => {
-    if (activeCompany) {
-      fetchData(activeTab, searchTerm, currentPage);
+    setSelectedItems([]);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!activeCompany) return;
+
+    const queryKey = `${activeTab}|${searchTerm}|${filters.estado}|${filters.tipo}|${filters.fechaDesde}|${filters.fechaHasta}`;
+    if (lastQueryKeyRef.current !== queryKey) {
+      lastQueryKeyRef.current = queryKey;
+      if (currentPage !== 1) {
+        setCurrentPage(1);
+        return;
+      }
     }
-  }, [activeTab, searchTerm, currentPage, activeCompany]);
+
+    fetchData(activeTab, searchTerm, currentPage, false, filters);
+  }, [activeTab, searchTerm, currentPage, activeCompany, filters]);
 
   // Calcular paginación
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
@@ -189,7 +229,7 @@ function InventarioPage() {
       `Activo ${editingItem ? "actualizado" : "creado"} con éxito.`,
       "success"
     );
-    fetchData(activeTab, searchTerm, currentPage);
+    fetchData(activeTab, searchTerm, currentPage, false, filters);
   };
 
   const handleImportCSV = () => setIsImportModalOpen(true);
@@ -209,7 +249,7 @@ function InventarioPage() {
           setCurrentPage(currentPage - 1);
         } else {
           // Recargar la página actual
-          fetchData(activeTab, searchTerm, currentPage);
+          fetchData(activeTab, searchTerm, currentPage, false, filters);
         }
       }
     };
@@ -219,6 +259,58 @@ function InventarioPage() {
       "¿Estás seguro de que quieres eliminar este ítem de forma permanente?",
       deleteAction
     );
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedItems.length === 0) return;
+    const deleteAction = async () => {
+      const { error } = await supabase
+        .from(activeTab)
+        .delete()
+        .in("id", selectedItems);
+      if (error) {
+        showNotification(error.message, "error");
+        return;
+      }
+      showNotification("Items eliminados correctamente.", "success");
+      setSelectedItems([]);
+      fetchData(activeTab, searchTerm, currentPage, false, filters);
+    };
+
+    showConfirm(
+      "Confirmar Eliminacion",
+      `Vas a eliminar ${selectedItems.length} items. Esta accion no se puede deshacer.`,
+      deleteAction
+    );
+  };
+
+  const handleExportSelected = () => {
+    if (selectedItems.length === 0) {
+      showNotification("No hay items seleccionados para exportar.", "info");
+      return;
+    }
+    const rows = items.filter(item => selectedItems.includes(item.id));
+    const headers = visibleColumns.map(col => col.label);
+    const csvRows = [
+      headers.join(",")
+    ];
+
+    rows.forEach(item => {
+      const values = visibleColumns.map(col => {
+        const value = getSortValue(item, col.key);
+        const safe = String(value ?? "").replace(/\"/g, '\"\"');
+        return `"${safe}"`;
+      });
+      csvRows.push(values.join(","));
+    });
+
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `inventario_${activeTab}_seleccion.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleExportCSV = () => {
@@ -257,6 +349,118 @@ function InventarioPage() {
       },
     };
     return configs[activeTab] || configs.equipos;
+  };
+
+  const columnConfigMap = useMemo(() => ({
+    equipos: [
+      { key: "id", label: "ID", sortable: true },
+      { key: "nombre", label: "Nombre", sortable: true },
+      { key: "estado", label: "Estado", sortable: true },
+      { key: "asignado", label: "Asignado A", sortable: true },
+      { key: "proveedor", label: "Proveedor", sortable: true }
+    ],
+    software: [
+      { key: "id", label: "ID", sortable: true },
+      { key: "nombre", label: "Nombre", sortable: true },
+      { key: "version", label: "Version", sortable: true },
+      { key: "stock", label: "Stock", sortable: true },
+      { key: "proveedor", label: "Proveedor", sortable: true }
+    ],
+    perifericos: [
+      { key: "id", label: "ID", sortable: true },
+      { key: "nombre", label: "Nombre", sortable: true },
+      { key: "marca", label: "Marca", sortable: true },
+      { key: "estado", label: "Estado", sortable: true },
+      { key: "proveedor", label: "Proveedor", sortable: true }
+    ]
+  }), []);
+
+  useEffect(() => {
+    const configs = columnConfigMap[activeTab] || [];
+    setColumnVisibility(prev => {
+      if (Object.keys(prev[activeTab] || {}).length > 0) return prev;
+      const defaults = {};
+      configs.forEach(col => {
+        defaults[col.key] = true;
+      });
+      return { ...prev, [activeTab]: defaults };
+    });
+  }, [activeTab, columnConfigMap]);
+
+  const visibleColumns = useMemo(() => {
+    const configs = columnConfigMap[activeTab] || [];
+    const visibility = columnVisibility[activeTab] || {};
+    return configs.filter(col => {
+      if (col.key === "id" || col.key === "nombre") return true;
+      return visibility[col.key] !== false;
+    });
+  }, [columnConfigMap, columnVisibility, activeTab]);
+
+  const getSortValue = (item, key) => {
+    switch (key) {
+      case "id":
+        return item.id || 0;
+      case "nombre":
+        return activeTab === "software"
+          ? (item.nombre || "")
+          : activeTab === "perifericos"
+            ? `${item.tipo || ""} ${item.modelo || ""}`.trim()
+            : `${item.marca || ""} ${item.modelo || ""}`.trim();
+      case "version":
+        return item.version || "";
+      case "stock":
+        return item.stock || 0;
+      case "marca":
+        return item.marca || "";
+      case "estado":
+        return item.estado || "";
+      case "asignado":
+        return item.registros?.nombre || "";
+      case "proveedor":
+        return item.proveedores?.nombre || "";
+      default:
+        return "";
+    }
+  };
+
+  const sortedItems = useMemo(() => {
+    if (!sortState.length) return items;
+    const sorted = [...items];
+    sorted.sort((a, b) => {
+      for (const sort of sortState) {
+        const aVal = getSortValue(a, sort.key);
+        const bVal = getSortValue(b, sort.key);
+        if (aVal < bVal) return sort.direction === "asc" ? -1 : 1;
+        if (aVal > bVal) return sort.direction === "asc" ? 1 : -1;
+      }
+      return 0;
+    });
+    return sorted;
+  }, [items, sortState, activeTab]);
+
+  const statusOptions = useMemo(() => {
+    if (!(activeTab === "equipos" || activeTab === "perifericos")) return [];
+    const set = new Set();
+    items.forEach(item => {
+      if (item.estado) set.add(item.estado);
+    });
+    return Array.from(set);
+  }, [items, activeTab]);
+
+  const toggleSort = (key, isMulti) => {
+    setSortState(prev => {
+      const existing = prev.find(s => s.key === key);
+      if (isMulti) {
+        if (!existing) return [...prev, { key, direction: "asc" }];
+        if (existing.direction === "asc") {
+          return prev.map(s => s.key === key ? { ...s, direction: "desc" } : s);
+        }
+        return prev.filter(s => s.key !== key);
+      }
+      if (!existing) return [{ key, direction: "asc" }];
+      if (existing.direction === "asc") return [{ key, direction: "desc" }];
+      return [];
+    });
   };
 
   const getStatusBadge = (estado) => {
@@ -327,6 +531,91 @@ function InventarioPage() {
     </div>
   );
 
+  const renderCell = (item, key) => {
+    switch (key) {
+      case "id":
+        return <span className="text-sm font-medium text-gray-900">{item.id}</span>;
+      case "nombre":
+        if (activeTab === "software") {
+          return (
+            <div className="flex items-center">
+              <div className="flex-shrink-0 h-10 w-10">
+                <div className="h-10 w-10 rounded-lg bg-green-100 flex items-center justify-center">
+                  <CommandLineIcon className="h-5 w-5 text-green-600" />
+                </div>
+              </div>
+              <div className="ml-3">
+                <div className="text-sm font-semibold text-gray-900">
+                  {item.nombre}
+                </div>
+              </div>
+            </div>
+          );
+        }
+        if (activeTab === "perifericos") {
+          return (
+            <div className="flex items-center">
+              <div className="flex-shrink-0 h-10 w-10">
+                <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                  <CubeIcon className="h-5 w-5 text-purple-600" />
+                </div>
+              </div>
+              <div className="ml-3">
+                <div className="text-sm font-semibold text-gray-900">
+                  {item.tipo}
+                </div>
+                <div className="text-xs text-gray-500">{item.modelo}</div>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div className="flex items-center">
+            <div className="flex-shrink-0 h-10 w-10">
+              <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                <ComputerDesktopIcon className="h-5 w-5 text-blue-600" />
+              </div>
+            </div>
+            <div className="ml-3">
+              <div className="text-sm font-semibold text-gray-900">
+                {item.marca} {item.modelo}
+              </div>
+              <div className="text-xs text-gray-500">S/N: {item.numero_serie}</div>
+            </div>
+          </div>
+        );
+      case "estado":
+        return getStatusBadge(item.estado);
+      case "asignado":
+        return item.registros ? (
+          <div className="flex items-center">
+            <div className="flex-shrink-0 h-8 w-8 bg-indigo-100 rounded-full flex items-center justify-center">
+              <span className="text-xs font-medium text-indigo-800">
+                {item.registros.nombre.charAt(0)}
+              </span>
+            </div>
+            <span className="ml-2">{item.registros.nombre}</span>
+          </div>
+        ) : (
+          getStatusBadge("Disponible")
+        );
+      case "proveedor":
+        return <span className="text-sm text-gray-900">{item.proveedores?.nombre || "N/A"}</span>;
+      case "version":
+        return (
+          <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded-md">
+            v{item.version}
+          </span>
+        );
+      case "stock":
+        return <span className="font-semibold">{item.stock}</span>;
+      case "marca":
+        return <span className="text-sm text-gray-900">{item.marca}</span>;
+      default:
+        return null;
+    }
+  };
+
   const EmptyState = () => {
     const config = getTabConfig();
     const Icon = config.icon;
@@ -363,202 +652,37 @@ function InventarioPage() {
     );
   };
 
-  const TableView = () => (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
-            {activeTab === "equipos" && (
-              <tr>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Activo
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Estado
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Asignado A
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Proveedor
-                </th>
-                <th className="relative px-6 py-4">
-                  <span className="sr-only">Acciones</span>
-                </th>
-              </tr>
-            )}
-            {activeTab === "software" && (
-              <tr>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Software
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Versión
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Stock
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Proveedor
-                </th>
-                <th className="relative px-6 py-4">
-                  <span className="sr-only">Acciones</span>
-                </th>
-              </tr>
-            )}
-            {activeTab === "perifericos" && (
-              <tr>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Periférico
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Marca
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Estado
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Proveedor
-                </th>
-                <th className="relative px-6 py-4">
-                  <span className="sr-only">Acciones</span>
-                </th>
-              </tr>
-            )}
-            {activeTab === "consumibles" && (
-              <tr>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Consumible
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Categoría
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Stock
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Proveedor
-                </th>
-                <th className="relative px-6 py-4">
-                  <span className="sr-only">Acciones</span>
-                </th>
-              </tr>
-            )}
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {items.map((item, index) => (
-              <tr
-                key={item.id}
-                className={`hover:bg-gray-50 transition-colors duration-200 ${
-                  index % 2 === 0 ? "bg-white" : "bg-gray-25"
-                }`}
-              >
-                {activeTab === "equipos" && (
-                  <>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-12 w-12">
-                          <div className="h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center">
-                            <ComputerDesktopIcon className="h-6 w-6 text-blue-600" />
-                          </div>
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-semibold text-gray-900">
-                            {item.marca} {item.modelo}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            S/N: {item.numero_serie}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(item.estado)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.registros ? (
-                        <div className="flex items-center">
-                          <div className="flex-shrink-0 h-8 w-8 bg-indigo-100 rounded-full flex items-center justify-center">
-                            <span className="text-xs font-medium text-indigo-800">
-                              {item.registros.nombre.charAt(0)}
-                            </span>
-                          </div>
-                          <span className="ml-2">{item.registros.nombre}</span>
-                        </div>
-                      ) : (
-                        getStatusBadge("Disponible")
-                      )}
-                    </td>
-                  </>
-                )}
-                {activeTab === "software" && (
-                  <>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-12 w-12">
-                          <div className="h-12 w-12 rounded-lg bg-green-100 flex items-center justify-center">
-                            <CommandLineIcon className="h-6 w-6 text-green-600" />
-                          </div>
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-semibold text-gray-900">
-                            {item.nombre}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded-md">
-                        v{item.version}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <span className="font-semibold">{item.stock}</span>{" "}
-                      licencias
-                    </td>
-                  </>
-                )}
-                {activeTab === "perifericos" && (
-                  <>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-12 w-12">
-                          <div className="h-12 w-12 rounded-lg bg-purple-100 flex items-center justify-center">
-                            <CubeIcon className="h-6 w-6 text-purple-600" />
-                          </div>
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-semibold text-gray-900">
-                            {item.tipo}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            {item.modelo}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.marca}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(item.estado)}
-                    </td>
-                  </>
-                )}
-                {activeTab === "consumibles" && (
-                  <>
+  const TableView = () => {
+    if (activeTab === "consumibles") {
+      return (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
+                <tr>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Consumible</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Categoria</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Stock</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Proveedor</th>
+                  <th className="relative px-6 py-4"><span className="sr-only">Acciones</span></th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {items.map((item, index) => (
+                  <tr
+                    key={item.id}
+                    className={`hover:bg-gray-50 transition-colors duration-200 ${
+                      index % 2 === 0 ? "bg-white" : "bg-gray-25"
+                    }`}
+                  >
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="flex-shrink-0 h-12 w-12 rounded-lg bg-amber-100 flex items-center justify-center">
                           <ArchiveBoxIcon className="h-6 w-6 text-amber-600" />
                         </div>
                         <div className="ml-4">
-                          <div className="text-sm font-semibold text-gray-900">
-                            {item.nombre}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            ID: {item.id}
-                          </div>
+                          <div className="text-sm font-semibold text-gray-900">{item.nombre}</div>
+                          <div className="text-xs text-gray-500">ID: {item.id}</div>
                         </div>
                       </div>
                     </td>
@@ -566,28 +690,142 @@ function InventarioPage() {
                       {item.categoria || "N/A"}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <span
-                        className={`font-semibold ${
-                          item.cantidad <= item.stock_minimo
-                            ? "text-red-600"
-                            : "text-gray-900"
-                        }`}
-                      >
+                      <span className={`font-semibold ${
+                        item.cantidad <= item.stock_minimo ? "text-red-600" : "text-gray-900"
+                      }`}>
                         {item.cantidad}
                       </span>
-                      <span className="text-xs text-gray-500">
-                        {" "}
-                        (min: {item.stock_minimo})
-                      </span>
+                      <span className="text-xs text-gray-500"> (min: {item.stock_minimo})</span>
                     </td>
-                  </>
-                )}
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {item.proveedores?.nombre || "N/A"}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <div className="flex items-center justify-end space-x-2">
-                    {activeTab !== "consumibles" && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {item.proveedores?.nombre || "N/A"}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex items-center justify-end space-x-2">
+                        <button
+                          onClick={() => handleEdit(item)}
+                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200"
+                          title="Editar"
+                        >
+                          <PencilIcon className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(item.id)}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
+                          title="Eliminar"
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    const selectedSet = new Set(selectedItems);
+    const allIds = sortedItems.map(item => item.id);
+    const allSelected = allIds.length > 0 && allIds.every(id => selectedSet.has(id));
+
+    const rowPadding = compactMode ? "py-2" : "py-4";
+
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider sticky left-0 bg-gray-50 z-20">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        const idsToAdd = allIds.filter(id => !selectedSet.has(id));
+                        setSelectedItems([...selectedItems, ...idsToAdd]);
+                      } else {
+                        setSelectedItems(selectedItems.filter(id => !allIds.includes(id)));
+                      }
+                    }}
+                  />
+                </th>
+                {visibleColumns.map(col => {
+                  const sortInfo = sortState.find(s => s.key === col.key);
+                  const isStickyId = col.key === "id";
+                  const isStickyName = col.key === "nombre";
+                  const stickyClass = isStickyId
+                    ? "sticky left-10 bg-gray-50 z-20"
+                    : isStickyName
+                      ? "sticky left-28 bg-gray-50 z-20"
+                      : "";
+
+                  return (
+                    <th
+                      key={col.key}
+                      className={`px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider ${stickyClass} ${
+                        col.sortable ? "cursor-pointer select-none" : ""
+                      }`}
+                      onClick={(e) => col.sortable && toggleSort(col.key, e.shiftKey)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span>{col.label}</span>
+                        {sortInfo && (
+                          <span className="text-[10px]">{sortInfo.direction === "asc" ? "ASC" : "DESC"}</span>
+                        )}
+                      </div>
+                    </th>
+                  );
+                })}
+                <th className="relative px-6 py-3">
+                  <span className="sr-only">Acciones</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {sortedItems.map((item, index) => (
+                <tr
+                  key={item.id}
+                  className={`hover:bg-gray-50 transition-colors duration-200 ${
+                    index % 2 === 0 ? "bg-white" : "bg-gray-25"
+                  }`}
+                >
+                  <td className="px-4 whitespace-nowrap sticky left-0 bg-white z-10">
+                    <input
+                      type="checkbox"
+                      checked={selectedSet.has(item.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedItems([...selectedItems, item.id]);
+                        } else {
+                          setSelectedItems(selectedItems.filter(id => id !== item.id));
+                        }
+                      }}
+                    />
+                  </td>
+                  {visibleColumns.map(col => {
+                    const isStickyId = col.key === "id";
+                    const isStickyName = col.key === "nombre";
+                    const stickyClass = isStickyId
+                      ? "sticky left-10 bg-white z-10"
+                      : isStickyName
+                        ? "sticky left-28 bg-white z-10"
+                        : "";
+                    const widthClass = isStickyId ? "w-16" : isStickyName ? "min-w-[260px]" : "";
+                    return (
+                      <td
+                        key={`${item.id}-${col.key}`}
+                        className={`px-6 ${rowPadding} whitespace-nowrap ${stickyClass} ${widthClass}`}
+                      >
+                        {renderCell(item, col.key)}
+                      </td>
+                    );
+                  })}
+                  <td className={`px-6 ${rowPadding} whitespace-nowrap text-right text-sm font-medium`}>
+                    <div className="flex items-center justify-end space-x-2">
                       <button
                         onClick={() => handleViewDetails(item)}
                         className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all duration-200"
@@ -595,30 +833,30 @@ function InventarioPage() {
                       >
                         <EyeIcon className="h-4 w-4" />
                       </button>
-                    )}
-                    <button
-                      onClick={() => handleEdit(item)}
-                      className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200"
-                      title="Editar"
-                    >
-                      <PencilIcon className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(item.id)}
-                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-                      title="Eliminar"
-                    >
-                      <TrashIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                      <button
+                        onClick={() => handleEdit(item)}
+                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200"
+                        title="Editar"
+                      >
+                        <PencilIcon className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(item.id)}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
+                        title="Eliminar"
+                      >
+                        <TrashIcon className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const config = getTabConfig();
 
@@ -760,8 +998,112 @@ function InventarioPage() {
                 <ListBulletIcon className="w-5 h-5" />
               )}
             </button>
+            <button
+              onClick={() => setCompactMode(!compactMode)}
+              className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-colors ${
+                compactMode
+                  ? "bg-gray-900 text-white border-gray-900"
+                  : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
+              }`}
+              title="Cambiar densidad"
+            >
+              {compactMode ? "Compacto" : "Comodo"}
+            </button>
           </div>
         </div>
+
+        {/* Filtros avanzados y columnas */}
+        <div className="mb-6 bg-white border border-gray-200 rounded-lg p-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Estado</label>
+              <select
+                value={filters.estado}
+                onChange={(e) => setFilters(prev => ({ ...prev, estado: e.target.value }))}
+                disabled={!(activeTab === "equipos" || activeTab === "perifericos")}
+                className="w-full px-3 py-2 border rounded-md text-sm bg-white disabled:bg-gray-50"
+              >
+                <option value="">Todos</option>
+                {statusOptions.map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Tipo</label>
+              <input
+                type="text"
+                value={filters.tipo}
+                onChange={(e) => setFilters(prev => ({ ...prev, tipo: e.target.value }))}
+                disabled={activeTab !== "perifericos"}
+                className="w-full px-3 py-2 border rounded-md text-sm bg-white disabled:bg-gray-50"
+                placeholder="Ej: Teclado"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Fecha desde</label>
+              <input
+                type="date"
+                value={filters.fechaDesde}
+                onChange={(e) => setFilters(prev => ({ ...prev, fechaDesde: e.target.value }))}
+                className="w-full px-3 py-2 border rounded-md text-sm bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Fecha hasta</label>
+              <input
+                type="date"
+                value={filters.fechaHasta}
+                onChange={(e) => setFilters(prev => ({ ...prev, fechaHasta: e.target.value }))}
+                className="w-full px-3 py-2 border rounded-md text-sm bg-white"
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <span className="text-xs font-semibold text-gray-600">Columnas:</span>
+            {(columnConfigMap[activeTab] || []).map(col => (
+              <label key={col.key} className="flex items-center gap-2 text-xs text-gray-700">
+                <input
+                  type="checkbox"
+                  disabled={col.key === "id" || col.key === "nombre"}
+                  checked={columnVisibility[activeTab]?.[col.key] !== false}
+                  onChange={(e) => {
+                    setColumnVisibility(prev => ({
+                      ...prev,
+                      [activeTab]: { ...prev[activeTab], [col.key]: e.target.checked }
+                    }));
+                  }}
+                />
+                {col.label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {selectedItems.length > 0 && (
+          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-blue-900 font-semibold">
+              {selectedItems.length} seleccionados
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExportSelected}
+                className="px-3 py-2 rounded-md bg-white border border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-50"
+              >
+                <DocumentArrowDownIcon className="w-4 h-4" />
+                Exportar seleccion
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                className="px-3 py-2 rounded-md bg-red-600 text-white text-sm font-semibold hover:bg-red-700"
+              >
+                <TrashIcon className="w-4 h-4" />
+                Eliminar seleccion
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         {error ? (
@@ -857,7 +1199,7 @@ function InventarioPage() {
         onSuccess={() => {
           setIsImportModalOpen(false);
           showNotification("Importación completada con éxito.", "success");
-          fetchData(activeTab, searchTerm, 1);
+          fetchData(activeTab, searchTerm, 1, false, filters);
           setCurrentPage(1);
         }}
         activeTab={activeTab}
